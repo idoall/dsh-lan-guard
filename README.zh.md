@@ -1,110 +1,146 @@
-# dsh-lan-guard
+<h1 align="center">DSH LAN Guard</h1>
 
-把桌面 DeepSeek Harness 的官方 Web 界面**安全地**开放到局域网。
+<p align="center">在手机上使用官方 DeepSeek Harness Web 界面——一个局域网内的门禁反向代理，不改动 DSH 自身的回环绑定。</p>
 
-> **当前状态：实施中（P1 已完成）。** 工程骨架与最小反代已实现并通过测试；门禁与设置页（P2）、局域网监听 + 自签 TLS + 二维码（P3）尚未实现。**在门禁就位之前，监听只绑回环地址。** 实施计划见 [`docs/PLAN.md`](docs/PLAN.md)。
+<p align="center">
+  <a href="https://www.npmjs.com/package/dsh-lan-guard"><img src="https://img.shields.io/npm/v/dsh-lan-guard?label=npm&color=CB3837" alt="npm 版本"></a>
+  <a href="https://github.com/idoall/dsh-lan-guard/actions/workflows/ci.yml"><img src="https://github.com/idoall/dsh-lan-guard/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-0F172A" alt="MIT"></a>
+</p>
 
----
+<p align="center"><a href="README.md">English</a> | 中文</p>
 
-## 这是什么
+<p align="center">
+  <a href="#能力">能力</a> ·
+  <a href="#安装">安装</a> ·
+  <a href="#使用">使用</a> ·
+  <a href="#兼容性">兼容性</a> ·
+  <a href="#配置">配置</a> ·
+  <a href="#排障">排障</a> ·
+  <a href="#安全边界">安全边界</a> ·
+  <a href="#卸载">卸载</a> ·
+  <a href="#开发">开发</a>
+</p>
 
-dsh-lan-guard 是一个 DeepSeek Harness（DSH）插件。它让同一个局域网内的手机、平板、另一台电脑能用浏览器打开你桌面上的 DSH：
+> DSH LAN Guard 是 DeepSeek Harness 的社区插件。它**不修改 DSH 核心**、**不改动 DSH 自身的监听地址**，并**原样复用官方 Web UI**。
 
-- **DSH 自身的回环监听不变**——不修改 DSH 的任何配置，不碰它的源码；
-- **官方 Web UI 原样复用**——不替换、不劫持界面，手机上看到的就是官方界面；
-- **带密码门禁**——端口不是敞开就完事，进来的人得先过门；
-- **默认自签 HTTPS**——可关闭；关闭时设置页会说明明文传输和浏览器能力受限。
+DSH 的 Web 界面只监听 `127.0.0.1`，手机、平板无法访问；而 DSH 官方明确拒绝绑定 `0.0.0.0`。本插件不碰那个绑定，而是另开一个**带门禁的端口**，把官方界面代理到局域网：密码门禁、默认自签 HTTPS、手机扫码入口，以及可逐个吊销的设备配对。
 
----
+## 能力
 
-## 为什么还需要一个
+- **门禁反向代理**：完整转发 HTTP 与 WebSocket（含官方界面的 `/api/remote.mux` 长连接），改写 `Host`/`Origin`，剥离逐跳头，上游不可达时返回 `502`。
+- **密码门禁**：PBKDF2-SHA256（600,000 次迭代）；**访问密码**（手机等访客）与**管理密码**（本管理台）分离；`dsh_` 免密链接；持久访客会话；按 IP 锁定与 CSRF 校验。
+- **默认自签 HTTPS**：自动生成 `DSH LAN Guard CA`，按所选网卡地址签发叶证书；CA 身份跨重启不变，所以每台设备只需信任一次。
+- **本机永不锁定**：直连 `127.0.0.1` 物理免锁；远程访问按 `auth.adminPolicy` 处理——只读（默认）、需密码解锁、或不锁。
+- **设备配对**：远程设备通过门禁后自己命名一次，获得 HttpOnly 设备身份 cookie，出现在设置页（名称 / 创建时间 / 最近使用 / 来源 IP），可逐个吊销；被吊销的设备立刻收到 `403`。
+- **设置挂在官方设置页内**：「局域网访问」分区含四个 tab——扫码访问、安全认证、已授权设备、连接与证书。排版与配色全部使用官方设计 token，**不替换任何官方布局**。
+- **端口可配置**：默认 `3081`（DSH 端口 + 1），被占用时自动往后顺延（最多试 10 个），设置页可改并带可用性检查。
+- **可选 mDNS**：默认关闭；开启后广播 `_dsh-lan-guard._tcp`。
 
-npm 上已经有 16 个以上名字相近的 `dsh-lan-*` 插件。它们大多在解决同一个问题：**怎么把 DSH 的端口打开到局域网**。
+## 安装
 
-dsh-lan-guard 关注的是下一个问题：**打开之后，谁进得来。**
+```sh
+dsh plugin --profile web add dsh-lan-guard
+```
 
-具体差异：
+然后**重启一次 DSH**（插件的服务端半边在启动时加载），打开 **设置 → 局域网访问**。
 
-| 维度 | 常见做法 | dsh-lan-guard |
-| --- | --- | --- |
-| 门禁 | 无，或依赖 DSH 自身的 cookie 栅栏 | 自带密码门禁 + IP 失败锁定 |
-| UI | 有的替换官方界面做手机专属布局 | **官方 UI 零改动**（因此不随 DSH 版本漂移） |
-| DSH 配置 | 有的把 `host` 改成 `0.0.0.0` | 不动 DSH 绑定，代理在另一个端口 |
-| 传输 | 多为明文 HTTP | 默认自签 HTTPS，可关闭 |
+## 使用
 
----
+1. 在 **设置 → 局域网访问 → 安全认证** 里设置**访问密码**（至少 8 位）。没设之前，门禁拒绝所有设备。
+2. 在 **连接与证书** 里选择对外公布的网卡。配置后默认监听 `0.0.0.0`；想先本机试跑就把配置里的 `listenHost` 设为 `127.0.0.1`。
+3. 打开 **扫码访问** tab，用手机扫描二维码。
+4. 手机上：信任 `DSH LAN Guard CA` 证书（SHA-256 指纹在设置页可复制）、输入一次访问密码，然后在**配对页**给这台设备起个名字。
+5. 手机现在运行的就是官方 DSH 界面。它会出现在 **已授权设备** 里，你可随时吊销。
 
-## 计划提供的能力
+> 远程设备默认是**只读**的（`adminPolicy: local_only`）：能用 DSH，但不能改插件设置。想让手机也能管理，在桌面把策略改掉。
 
-- 反向代理：HTTP 与 WebSocket（含 DSH 0.1.7 的 Remote 流 `/api/remote.mux`）
-- 请求头改写与上游会话 cookie 注入（让代理流量在 DSH 看来是本机回环请求）
-- 密码门禁：访问密码 + 独立管理密码、免密链接令牌、持久会话、按 IP 的失败锁定
-- 设置界面：挂在 **DSH 官方设置页**里（注册官方 seat，不替换官方 UI），用于配置门禁、查看访问地址和扫码
-- 默认自签 HTTPS：长期 CA + 按网卡 IP 签发的叶证书；可关闭，关闭时提示影响
-- 局域网二维码：设置页展示当前地址，支持普通链接和需管理员解锁的免密链接
-- 多网卡识别与选择（虚拟网卡降权）
-- 官方 Web UI 零改动
+## 兼容性
 
----
+当前版本：插件 **`0.1.0`** 已在 DeepSeek Harness **`0.1.7-rc.1`**（最新候选版本）上验证通过。
 
-## 明确不做
+### 插件版本与 DeepSeek Harness 版本的对应
 
-- ❌ 公网隧道（Cloudflare / cpolar / FRP / Tailscale）
-- ❌ IM Bot（微信 / QQ / 飞书 / Telegram）
-- ❌ 手机专属界面（官方界面已自带响应式适配）
-- ❌ 修改 DSH 源码或其 `host` 绑定
-- ❌ 多用户账号体系
+| 插件 | 已验证的 DeepSeek Harness | npm 上 | 这个版本是什么 |
+| --- | --- | --- | --- |
+| **`0.1.0`** | `0.1.7-rc.1` | `latest` | 首个版本：门禁反向代理、自签 HTTPS、设备配对、设置页、扫码访问 |
 
----
+- 声明范围 `>=0.1.7-rc.1 <0.2.0`（`dsh.engines.dsh`），`dsh.compatibility.dshReleases` 记录 `0.1.7-rc.1: compatible`。
+- 未列入的 DSH 版本属**未验证**——请自行验证后再使用。
+- 需要锁定版本时：
 
-## 文档
+  ```sh
+  dsh plugin --profile web add dsh-lan-guard@0.1.0
+  ```
 
-本仓库的文档分为两类：**面向使用者**和**面向 AI 助手**。
+## 配置
 
-### 面向使用者
+插件从它的 Cordis 条目读取配置（profile patch 或 `dsh plugin` 配置）。默认值保守：**你不开口，它不对外公布。**
 
-| 文档 | 内容 |
-| --- | --- |
-| [`README.md`](README.md) / `README.zh.md` | 项目说明（本文件） |
-| [`CHANGELOG.md`](CHANGELOG.md) | 版本变更记录 |
-| [`docs/SPEC.md`](docs/SPEC.md) | 技术规格：做成什么样、明确不做什么 |
-| [`docs/PLAN.md`](docs/PLAN.md) | 分阶段实施计划与验收标准 |
+```yaml
+enabled: true                    # 总开关
+listenHost: 0.0.0.0              # 默认 127.0.0.1（仅回环）；要面向局域网需显式设置
+listenPort: 3081                 # DSH 端口 + 1；被占用时自动顺延（最多 10 个）
+upstreamOrigin: http://127.0.0.1:3080
+dataDir: ~/.dsh/profiles/web/data/dsh-lan-guard
+networkInterface: en0            # 可选：只在一个网卡上公布（留空 = 自动）
+tls:
+  mode: self-signed              # 'self-signed'（默认）| 'provided' | 'off'
+  allowInsecureLan: false        # 局域网明文 HTTP 的显式风险确认
+mdns:
+  enabled: false                 # 广播 _dsh-lan-guard._tcp
+auth:
+  mode: token_and_password       # 'token_and_password' | 'password' | 'token'
+  adminPolicy: local_only        # 'local_only'（默认）| 'password_unlock' | 'open'
+  adminProtection: true          # 管理台需要管理密码
+  allowLoopback: true            # 127.0.0.1 访客跳过门禁（物理免锁）
+  requirePairing: true           # 新的远程设备必须先命名一次
+```
 
-### 面向 AI 助手（实施时必读）
+以上各项也可在设置页修改（非敏感项声明为 volatile 配置字段）。
 
-| 文档 | 内容 |
-| --- | --- |
-| [`AGENTS.md`](AGENTS.md) | **AI 协作总纲**：职责、红线、停止点、工作流、漂移自检 |
-| [`docs/GUARDRAILS.md`](docs/GUARDRAILS.md) | 权限边界：可做 / 不可做 / 必须先问、职责矩阵 |
-| [`docs/RESEARCH.md`](docs/RESEARCH.md) | 已核实的 DSH 事实基线（含文件路径与行号） |
-| [`docs/RELEASE.md`](docs/RELEASE.md) | 发布流程与授权级别 |
+## 排障
 
-> 如果你是把本项目交给 AI 实施：**先让它读 `AGENTS.md`。** 那份文件专门用于防止 AI 跑偏。
+**手机提示证书不受信任。** CA 是自签的：每台设备安装/信任一次 `DSH LAN Guard CA`。信任前先比对 **连接与证书** 里显示的指纹。
 
----
+**手机完全连不上。** 确认手机在同一网络、地址与二维码一致，并检查是否有 VPN 或「专用代理/中继」类功能拦截流量。设置页会显示监听器**实际绑定**的地址。
 
-## 安全说明
+**「配置的端口 X 已被占用，已自动改用 Y」。** 端口被别的程序占着，插件已自行顺延。可在 **连接与证书** 换端口（带可用性检查），或释放该端口。
 
-- 本插件默认**不**对外监听；需要显式配置才开放；
-- 局域网不是可信网络。同网段的任何设备都能尝试连接，因此门禁是必需项而非可选项；
-- 自签 HTTPS 需要在手机上一次性信任 CA 证书；
-- 密码以 PBKDF2-SHA256 哈希存储，仓库内不会出现任何明文凭据或私钥。
+**「此设备已被移除访问权限」（403）。** 该设备已在 **已授权设备** 中被吊销。删除那条记录即可让它重新配对。
 
-- **mDNS 发现是可选项且默认关闭**（`mdns.enabled`）。即便打开，iOS Safari 与 Android Chrome 在实践中也不会为任意网页解析 `.local` 名字——**手机上的可靠路径仍是二维码**。
+**我忘了访问密码。** 在运行 DSH 的电脑上直连 `http://127.0.0.1:3080`（本机直连物理免锁）重设。无头服务器则删除 `dataDir` 下的 `secrets.json` 后重设——在此之前门禁会拒绝所有设备。
 
----
+**改过密码后所有设备都要重新输密码。** 这是有意的：更换访问密码或切换验证模式会**吊销所有已有访客会话**。
+
+**局域网明文 HTTP 被拒绝。** `listenHost` + `tls.mode: 'off'` 会被拒绝，除非显式设置 `tls.allowInsecureLan: true`——否则门禁密码将明文传输。
+
+## 安全边界
+
+- DSH 自身的监听地址不被改动；本插件从不修改 DSH 配置或官方 UI。
+- 密钥（`secrets.json`、`devices.json`、会话）存放在 `dataDir`，权限 `600`；设备令牌明文只返回一次，落盘只存 SHA-256 哈希。
+- 门禁先于监听可用；代理给每个转发请求打上不可伪造的来源标记，宿主据此区分「本机操作者」与「经代理的访客」。
+- 回环直连**按设计物理免锁**——能使用这台电脑的人本就能改这些设置。
+- 访问密码是**共享**的：吊销设备会立即让该设备的身份 cookie 失效，但换个浏览器用密码仍可重新配对。要「同一台机器永久拉黑」需要设备指纹或每设备独立令牌。
+- 只面向局域网：不做公网隧道、不做 IM Bot、不做端口转发。
+
+## 卸载
+
+```sh
+dsh plugin --profile web remove dsh-lan-guard
+rm -rf ~/.dsh/profiles/web/data/dsh-lan-guard   # 可选：删除密钥、设备记录与 CA
+```
 
 ## 开发
 
-需要 Node ≥ 20 与 pnpm。
-
 ```sh
 pnpm install
-pnpm test        # 类型检查（源码 + 测试）+ vitest
-pnpm run build   # tsdown → lib/
+pnpm test          # 单元 + 集成测试（含类型检查）
+pnpm run build     # 打包 lib/index.js 与 lib/client.js
+pnpm run verify    # 类型检查 + 测试 + 构建 + pack dry-run
 ```
 
----
+设计与验证记录在 [`docs/`](docs/)：`SPEC.md`（要做什么）、`PLAN.md`（阶段门禁与逐项验证记录）、`RESEARCH.md`（已核实的 DSH 事实）、`GUARDRAILS.md`（红线）、`RELEASE.md`（发布流程）。
 
 ## 许可
 

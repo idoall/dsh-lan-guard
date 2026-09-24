@@ -1,106 +1,146 @@
-# dsh-lan-guard
+<h1 align="center">DSH LAN Guard</h1>
 
-Safely expose the desktop DeepSeek Harness Web GUI to your local network.
+<p align="center">Use the official DeepSeek Harness Web UI from your phone — a gated reverse proxy on your LAN that never touches DSH's own loopback binding.</p>
 
-> **Status: in progress (P1 complete).** The engineering skeleton and the loopback reverse proxy are implemented and tested; the password gate and settings UI (P2) and the LAN listener, TLS and QR code (P3) are not. The listener is loopback-only until the gate exists. See [`docs/PLAN.md`](docs/PLAN.md).
+<p align="center">
+  <a href="https://www.npmjs.com/package/dsh-lan-guard"><img src="https://img.shields.io/npm/v/dsh-lan-guard?label=npm&color=CB3837" alt="npm version"></a>
+  <a href="https://github.com/idoall/dsh-lan-guard/actions/workflows/ci.yml"><img src="https://github.com/idoall/dsh-lan-guard/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-0F172A" alt="MIT"></a>
+</p>
 
----
+<p align="center">English | <a href="README.zh.md">中文</a></p>
 
-## What it is
+<p align="center">
+  <a href="#features">Features</a> ·
+  <a href="#install">Install</a> ·
+  <a href="#usage">Usage</a> ·
+  <a href="#compatibility">Compatibility</a> ·
+  <a href="#configuration">Configuration</a> ·
+  <a href="#troubleshooting">Troubleshooting</a> ·
+  <a href="#security-boundary">Security</a> ·
+  <a href="#uninstall">Uninstall</a> ·
+  <a href="#development">Development</a>
+</p>
 
-dsh-lan-guard is a DeepSeek Harness (DSH) plugin. It lets a phone, tablet, or another computer on the same LAN open the DSH running on your desktop in a browser:
+> DSH LAN Guard is a community plugin for DeepSeek Harness. It does not modify DSH core, does not change DSH's own listening address, and reuses the official Web UI unmodified.
 
-- **DSH's loopback binding stays untouched** — no DSH configuration changes, no DSH source modifications;
-- **The official Web UI is reused as-is** — no layout replacement, no UI hijacking;
-- **Password-gated** — opening the port is not the point; who gets in is;
-- **Self-signed HTTPS on by default** — it can be turned off; the settings page then explains the impact.
+DSH serves its Web UI on `127.0.0.1` only, so phones and tablets cannot reach it, and DSH deliberately refuses to bind `0.0.0.0`. This plugin leaves that binding alone and runs a **second, gated port** that proxies the official UI to your LAN: password gate, self-signed HTTPS by default, a QR code to open it on a phone, and per-device pairing you can revoke one by one.
 
----
+## Features
 
-## Why another one
+- **Gated reverse proxy** — full HTTP and WebSocket forwarding (the official UI's `/api/remote.mux` mux included), `Host`/`Origin` rewriting, hop-by-hop header stripping, `502` when the upstream is unreachable.
+- **Password gate** — PBKDF2-SHA256 (600,000 iterations), a separate **access password** (phones) and **admin password** (this console), a `dsh_` passwordless link, persistent visitor sessions, per-IP lockout and CSRF checks.
+- **Self-signed HTTPS by default** — generates its own `DSH LAN Guard CA`, issues a leaf certificate for the selected NIC address, and keeps the CA identity stable across restarts so devices only trust it once.
+- **Your own machine is never locked** — direct `127.0.0.1` access is physically unlocked. Remote access follows `auth.adminPolicy`: read-only (default), password-unlocked, or open.
+- **Per-device pairing** — a phone that passes the gate names itself once, receives an HttpOnly device cookie, appears in the settings page (name / created / last used / source IP) and can be revoked individually. A revoked device is refused with `403` immediately.
+- **Settings inside the official page** — a "局域网访问" section with four tabs: QR access, authentication, authorised devices, connection & certificates. All typography and colours use the official design tokens; the official layout is never replaced.
+- **Configurable port** — defaults to `3081` (DSH's port + 1), walks up to ten ports when that one is taken, editable in the settings page with an availability check.
+- **Optional mDNS** — off by default; advertises `_dsh-lan-guard._tcp` when enabled.
 
-There are already 16+ similarly named `dsh-lan-*` plugins on npm. Most of them solve the same problem: **how to open DSH's port to the LAN**.
+## Install
 
-dsh-lan-guard addresses the next question: **once it is open, who gets in.**
+```sh
+dsh plugin --profile web add dsh-lan-guard
+```
 
-| Dimension | Common approach | dsh-lan-guard |
-| --- | --- | --- |
-| Gate | None, or relying on DSH's own cookie fence | Built-in password gate + per-IP lockout |
-| UI | Some replace the official UI with a mobile-specific layout | **Official UI untouched** (so it does not drift with DSH releases) |
-| DSH config | Some flip `host` to `0.0.0.0` | Leaves DSH's binding alone; proxies on a separate port |
-| Transport | Usually plain HTTP | Self-signed HTTPS on by default, can be turned off |
+Then restart DSH once (the plugin's server half is loaded at startup) and open **Settings → 局域网访问**.
 
----
+## Usage
 
-## Planned capabilities
+1. In **Settings → 局域网访问 → 安全认证**, set an **access password** (at least 8 characters). Until you do, the gate refuses every device.
+2. In **连接与证书**, pick the NIC to publish on. `0.0.0.0` is the default for a configured plugin; set `listenHost: 127.0.0.1` in the config to keep it local-only while you try it out.
+3. Open the **扫码访问** tab and scan the QR code with your phone.
+4. On the phone: trust the `DSH LAN Guard CA` certificate (the SHA-256 fingerprint is shown in the settings page), enter the access password once, then **name the device** on the pairing page.
+5. The phone now runs the official DSH UI. It appears under **已授权设备**, where you can revoke it at any time.
 
-- Reverse proxy for HTTP and WebSocket (including DSH 0.1.7's Remote stream at `/api/remote.mux`)
-- Request-header rewriting and upstream session-cookie injection (so proxied traffic looks like a local loopback request to DSH)
-- Password gate: separate access and admin passwords, token links, persistent sessions, per-IP failure lockout
-- Settings UI: mounted inside the **official DSH settings page** (registers an official seat; does not replace the official UI) for the gate, the access URL, and the QR code
-- Self-signed HTTPS by default: long-lived CA plus a leaf certificate for the NIC's current IP; turning it off shows an impact notice
-- LAN QR code: the settings page shows the current URL, with a password link and an admin-unlocked token link
-- Multi-NIC detection and selection (virtual adapters down-ranked)
-- Official Web UI left completely unchanged
+> Remote devices are **read-only** by default (`adminPolicy: local_only`): they can use DSH but cannot change plugin settings. Switch the policy on the desktop if you want a phone to manage them.
 
----
+## Compatibility
 
-## Explicitly out of scope
+Current release: plugin **`0.1.0`** is verified against DeepSeek Harness **`0.1.7-rc.1`** (the latest release candidate).
 
-- ❌ Public tunnels (Cloudflare / cpolar / FRP / Tailscale)
-- ❌ IM bots (WeChat / QQ / Feishu / Telegram)
-- ❌ A mobile-specific UI (the official UI already ships responsive behaviour)
-- ❌ Modifying DSH source or its `host` binding
-- ❌ Multi-user accounts
+### Which plugin version goes with which DeepSeek Harness version
 
----
+| Plugin | Verified DeepSeek Harness | On npm | What that version is |
+| --- | --- | --- | --- |
+| **`0.1.0`** | `0.1.7-rc.1` | `latest` | First release: gated reverse proxy, self-signed HTTPS, device pairing, settings UI, QR access |
 
-## Documentation
+- The declared range is `>=0.1.7-rc.1 <0.2.0` (`dsh.engines.dsh`), and `dsh.compatibility.dshReleases` records `0.1.7-rc.1: compatible`.
+- A DSH release that is not listed is **unverified** — test it before trusting it.
+- Install a specific version when it matters:
 
-### For users
+  ```sh
+  dsh plugin --profile web add dsh-lan-guard@0.1.0
+  ```
 
-| Document | Contents |
-| --- | --- |
-| `README.md` / [`README.zh.md`](README.zh.md) | Project overview (this file) |
-| [`CHANGELOG.md`](CHANGELOG.md) | Release history |
-| [`docs/SPEC.md`](docs/SPEC.md) | Technical specification: what it does and does not do |
-| [`docs/PLAN.md`](docs/PLAN.md) | Staged implementation plan and acceptance criteria |
+## Configuration
 
-### For AI assistants (required reading before implementing)
+The plugin reads its config from its Cordis entry (profile patch or `dsh plugin` config). Defaults are conservative: **nothing is published until you say so.**
 
-| Document | Contents |
-| --- | --- |
-| [`AGENTS.md`](AGENTS.md) | **AI collaboration charter**: responsibilities, red lines, stop points, workflow, drift self-check |
-| [`docs/GUARDRAILS.md`](docs/GUARDRAILS.md) | Permission boundaries: allowed / forbidden / ask-first, responsibility matrix |
-| [`docs/RESEARCH.md`](docs/RESEARCH.md) | Verified DSH facts baseline (with file paths and line numbers) |
-| [`docs/RELEASE.md`](docs/RELEASE.md) | Release process and authorization levels |
+```yaml
+enabled: true                    # master switch
+listenHost: 0.0.0.0              # default 127.0.0.1 (loopback only); set to face the LAN
+listenPort: 3081                 # DSH port + 1; auto-walks up to 10 ports when taken
+upstreamOrigin: http://127.0.0.1:3080
+dataDir: ~/.dsh/profiles/web/data/dsh-lan-guard
+networkInterface: en0            # optional: publish on one NIC (empty = automatic)
+tls:
+  mode: self-signed              # 'self-signed' (default) | 'provided' | 'off'
+  allowInsecureLan: false        # required acknowledgement for LAN plain HTTP
+mdns:
+  enabled: false                 # advertise _dsh-lan-guard._tcp
+auth:
+  mode: token_and_password       # 'token_and_password' | 'password' | 'token'
+  adminPolicy: local_only        # 'local_only' (default) | 'password_unlock' | 'open'
+  adminProtection: true          # admin console needs the admin password
+  allowLoopback: true            # 127.0.0.1 visitors skip the gate (physically unlocked)
+  requirePairing: true           # new remote devices must name themselves once
+```
 
-> If you are handing this project to an AI to implement: **have it read `AGENTS.md` first.** That file exists specifically to keep it from drifting.
+Every key above can also be changed from the settings page (the non-sensitive ones are declared as volatile config fields).
 
----
+## Troubleshooting
 
-## Security notes
+**The phone shows a certificate warning.** The CA is self-signed: install/trust `DSH LAN Guard CA` once per device. Compare the fingerprint shown in **连接与证书** before trusting it.
 
-- The plugin does **not** listen externally by default; explicit configuration is required;
-- A LAN is not a trusted network. Any device on the same subnet can attempt to connect, so the gate is mandatory, not optional;
-- Self-signed HTTPS requires trusting the CA on the phone once;
-- Passwords are stored as PBKDF2-SHA256 hashes; no plaintext credentials or private keys will ever appear in this repository.
+**The phone cannot reach the address at all.** Check that the phone is on the same network, that the address matches the QR code, and that no VPN or "private relay" feature is intercepting traffic. The settings page shows the address the listener is actually bound to.
 
-- **mDNS discovery is optional and off by default** (`mdns.enabled`). Even when on, iOS Safari and Android Chrome do not resolve `.local` names for arbitrary web pages in practice — the QR code stays the reliable path on a phone.
+**"配置的端口 X 已被占用，已自动改用 Y".** Something else holds the port; the plugin moved on by itself. Set a different port in **连接与证书** (it has an availability check) or free the port.
 
----
+**"此设备已被移除访问权限" (403).** The device was revoked under **已授权设备**. Delete that record to let it pair again.
+
+**I forgot the access password.** On the machine that runs DSH, open `http://127.0.0.1:3080` (direct loopback access is physically unlocked) and set a new one. On a headless server, delete `secrets.json` in `dataDir` and set a new password — until then the gate refuses every device.
+
+**Every device asks for the password again after I changed it.** That is intentional: changing the access password or the auth mode revokes every existing visitor session.
+
+**Plain HTTP on the LAN is refused.** `listenHost` + `tls.mode: 'off'` is rejected unless you set `tls.allowInsecureLan: true` — the gate password would otherwise travel in clear text.
+
+## Security boundary
+
+- DSH's own listener is untouched; this plugin never edits DSH config or the official UI.
+- Secrets (`secrets.json`, `devices.json`, sessions) live in `dataDir` with mode `600`; the plaintext device token is returned once and only its SHA-256 hash is stored.
+- The gate applies before the listener is useful, and the proxy stamps every forwarded request with an unforgeable origin marker so the host can tell the machine's own operator from a proxied visitor.
+- Loopback direct access is **physically unlocked by design** — anyone who can already use that machine can change these settings.
+- The access password is **shared**: revoking a device invalidates that device's identity cookie immediately, but re-pairing with the password from another browser is still possible. A permanent per-machine ban would need device fingerprinting or per-device tokens.
+- LAN-only by design: no public tunnels, no IM bots, no port forwarding.
+
+## Uninstall
+
+```sh
+dsh plugin --profile web remove dsh-lan-guard
+rm -rf ~/.dsh/profiles/web/data/dsh-lan-guard   # optional: removes secrets, devices and the CA
+```
 
 ## Development
 
-Requires Node ≥ 20 and pnpm.
-
 ```sh
 pnpm install
-pnpm test        # type check (src + tests) + vitest
-pnpm run build   # tsdown → lib/
+pnpm test          # unit + integration tests (typecheck included)
+pnpm run build     # bundles lib/index.js and lib/client.js
+pnpm run verify    # typecheck + tests + build + pack dry-run
 ```
 
----
+The design and verification record lives in [`docs/`](docs/) — `SPEC.md` (what it must do), `PLAN.md` (phase gates and what was verified when), `RESEARCH.md` (verified DSH facts), `GUARDRAILS.md` (red lines), `RELEASE.md` (release flow).
 
 ## License
 
