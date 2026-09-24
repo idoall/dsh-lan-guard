@@ -1,0 +1,117 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    name: Release version gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require tag to match package.json
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pkg="$(node -p "require('./package.json').version")"
+          if [ "$tag" != "$pkg" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match package.json version $pkg"
+            exit 1
+          fi
+          echo "tag $GITHUB_REF_NAME matches package.json $pkg"
+      - name: Require hand-written release notes with both language anchors
+        run: |
+          file="release-notes/v${GITHUB_REF_NAME#v}.md"
+          test -f "$file" || { echo "::error::missing $file"; exit 1; }
+          grep -q "<h3 id=\"cn-v${GITHUB_REF_NAME#v}\">" "$file" || { echo "::error::missing Chinese anchor"; exit 1; }
+          grep -q "<h3 id=\"en-v${GITHUB_REF_NAME#v}\">" "$file" || { echo "::error::missing English anchor"; exit 1; }
+          echo "$file carries both anchors"
+
+  package:
+    name: Plugin package
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.x
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run verify
+      - name: Pack plugin
+        run: |
+          npm pack --pack-destination dist
+          ls -l dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: plugin-package
+          path: dist/*.tgz
+
+  publish:
+    name: Publish npm package
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.x
+          registry-url: https://registry.npmjs.org
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Publish npm package (idempotent)
+        run: |
+          name="$(node -p "require('./package.json').name")"
+          version="$(node -p "require('./package.json').version")"
+          # The very first release of a brand-new package cannot use OIDC trusted
+          # publishing yet (npm requires the package to exist first), so it may
+          # already be on the registry by the time CI runs. Skip instead of failing.
+          if npm view "$name@$version" version >/dev/null 2>&1; then
+            echo "$name@$version is already published; skipping"
+            exit 0
+          fi
+          # Trusted publishing (OIDC): no NODE_AUTH_TOKEN, npm CLI 11.5.1+.
+          npm publish --access public --provenance
+
+  release:
+    name: GitHub release
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: plugin-package
+          path: release-assets
+      - name: Create or update the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release edit "$GITHUB_REF_NAME" \
+              --title "dsh-lan-guard v$version" \
+              --notes-file "release-notes/v$version.md" \
+              --repo "$GITHUB_REPOSITORY"
+            gh release upload "$GITHUB_REF_NAME" release-assets/* --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" release-assets/* \
+              --title "dsh-lan-guard v$version" \
+              --notes-file "release-notes/v$version.md" \
+              --repo "$GITHUB_REPOSITORY"
+          fi
