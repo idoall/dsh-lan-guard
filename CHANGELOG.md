@@ -1,12 +1,12 @@
 # Changelog
 
-## [Unreleased]
+## [0.1.1] — 2026-09-25
 
 ### 文档
 
 - **README 重写为中英双语用户文档**（README.md / README.zh.md，各 147 行，结构与 dsh-update-status 对齐）：徽章 + 语言互链 + 锚点导航 + 「能力 / 安装 / 使用 / 兼容性（含版本对应表）/ 配置（完整键表）/ 排障 / 安全边界 / 卸载 / 开发」；原先的「计划提供的能力」等实施前规划稿措辞已全部替换为已发布状态的描述。
 
-## [0.1.0] — 2026-09-25
+## [0.1.0] — 2026-09-24
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与[语义化版本](https://semver.org/lang/zh-CN/)。
 
