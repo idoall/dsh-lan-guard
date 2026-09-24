@@ -1,0 +1,27 @@
+# 依赖与构建产物
+node_modules/
+dist/
+lib/
+coverage/
+*.tsbuildinfo
+
+# 本地临时 DSH home 与验收产物（P1 起，绝不提交）
+.tmp/
+
+# 日志与系统文件
+*.log
+.DS_Store
+
+# ============================================================
+# 凭据与证书：绝不提交（见 docs/GUARDRAILS.md §4）
+# ============================================================
+*.pem
+*.key
+*.crt
+*.cer
+*.p12
+*.pfx
+*.secret
+.credentials.yaml
+.env
+.env.*

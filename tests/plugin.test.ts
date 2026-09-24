@@ -1,0 +1,189 @@
+/**
+ * Plugin entry tests (docs/PLAN.md §4/§5).
+ *
+ * These drive the real `apply`/`startLanGuard` wiring with a stub host, so the
+ * phase gate, the gate wiring and the lifecycle disposer are exercised without
+ * a real DSH process. The real-DSH load is a separate manual acceptance step.
+ *
+ * (Replaces the P1 version of this file, which asserted the pre-gate runtime
+ * shape; that file was created in this same session.)
+ */
+import { afterEach, describe, expect, it } from 'vitest'
+import type { Context } from '@deepseek-ai/cordis'
+import { apply, startLanGuard, type LanGuardHost, type LanGuardRuntime } from '../src/index.ts'
+import type { LanGuardLogger } from '../src/log.ts'
+import type { AuthManager } from '../src/auth/manager.ts'
+import type { WebServerLike } from '../src/settings/routes.ts'
+import { startFakeDsh, type FakeDsh } from './helpers/fake-dsh.ts'
+import { freePort, requestTo } from './helpers/http-client.ts'
+import { tmpDataDir } from './helpers/tmp.ts'
+
+let fake: FakeDsh | undefined
+let runtime: LanGuardRuntime | undefined
+
+afterEach(async () => {
+  await runtime?.close()
+  await fake?.close()
+  runtime = undefined
+  fake = undefined
+})
+
+/** A logger that records nothing; assertions here are about behaviour, not logs. */
+function silentLogger(): LanGuardLogger {
+  return { info() {}, warn() {}, debug() {} }
+}
+
+/** A host stub backed by the fake upstream. */
+function hostFor(upstream: FakeDsh, extra: Partial<LanGuardHost> = {}): LanGuardHost {
+  return {
+    authenticatedUrl: upstream.authenticatedUrl,
+    logger: silentLogger(),
+    ...extra,
+  }
+}
+
+/** Seed an access password so the gate is a working gate rather than a refusal. */
+async function seedPassword(auth: AuthManager): Promise<void> {
+  await auth.setPassword('correct horse battery staple')
+}
+
+describe('startLanGuard', () => {
+  it('serves the upstream through a loopback listener', async () => {
+    fake = await startFakeDsh()
+    runtime = await startLanGuard(hostFor(fake), {
+      dataDir: await tmpDataDir(),
+      listenPort: 0,
+      upstreamOrigin: fake.origin,
+      tls: { mode: 'off' },
+      auth: { allowLoopback: true },
+    })
+    expect(runtime).toBeDefined()
+    expect(runtime?.proxy.host).toBe('127.0.0.1')
+    // allowLoopback defaults to true, so a loopback visitor passes the gate.
+    const response = await requestTo(runtime?.proxy.port ?? 0, { path: '/' })
+    expect(response.status).toBe(200)
+    expect(response.body.toString()).toContain('fake dsh index')
+  })
+
+  it('opens no listener when the plugin is disabled', async () => {
+    fake = await startFakeDsh()
+    const result = await startLanGuard(hostFor(fake), {
+      dataDir: await tmpDataDir(),
+      enabled: false,
+    })
+    expect(result).toBeUndefined()
+  })
+
+  it('refuses a non-loopback listener with TLS disabled', async () => {
+    fake = await startFakeDsh()
+    await expect(startLanGuard(hostFor(fake), {
+      dataDir: await tmpDataDir(),
+      listenHost: '0.0.0.0',
+      tls: { mode: 'off' },
+    })).rejects.toThrow(/plain HTTP on the network/)
+  })
+
+  it('refuses to collide with the DSH web server port', async () => {
+    fake = await startFakeDsh()
+    await expect(startLanGuard(hostFor(fake, { webServerPort: 3080 }), {
+      dataDir: await tmpDataDir(),
+      listenPort: 3080,
+    })).rejects.toThrow(/DSH's own web server port/)
+  })
+
+  it('refuses an invalid config', async () => {
+    fake = await startFakeDsh()
+    await expect(startLanGuard(hostFor(fake), {})).rejects.toThrow(/dataDir/)
+  })
+
+  it('gates a visitor even though the listener is loopback', async () => {
+    // A loopback listener can still be reached by a LAN client through any
+    // other forwarder, so the gate must not depend on the bind address.
+    fake = await startFakeDsh()
+    runtime = await startLanGuard(hostFor(fake), {
+      dataDir: await tmpDataDir(),
+      listenPort: 0,
+      upstreamOrigin: fake.origin,
+      tls: { mode: 'off' },
+      auth: { allowLoopback: false },
+    })
+    const started = runtime
+    if (started === undefined) throw new Error('runtime missing')
+    await seedPassword(started.auth)
+    const response = await requestTo(started.proxy.port, { path: '/', headers: { accept: 'text/html' } })
+    expect(response.status).toBe(401)
+    expect(response.body.toString()).toContain('访问密码')
+  })
+})
+
+describe('apply', () => {
+  it('starts the listener, registers management routes and closes on dispose', async () => {
+    fake = await startFakeDsh()
+    const port = await freePort()
+    const disposers: (() => unknown)[] = []
+    const routes: string[] = []
+
+    const ctx = {
+      logger: () => silentLogger(),
+      connection: {
+        authenticatedUrl: fake.authenticatedUrl,
+        requestRejection: () => undefined,
+      },
+      webServer: {
+        port: 3080,
+        register: (route: { path: string }) => {
+          routes.push(route.path)
+          return () => {}
+        },
+      },
+      effect: (execute: () => () => unknown) => {
+        disposers.push(execute())
+      },
+    } as unknown as Context
+
+    await apply(ctx, {
+      dataDir: await tmpDataDir(),
+      listenPort: port,
+      upstreamOrigin: fake.origin,
+      tls: { mode: 'off' },
+      auth: { allowLoopback: true },
+    })
+
+    const response = await requestTo(port, { path: '/' })
+    expect(response.status).toBe(200)
+    expect(routes).toEqual([
+      '/plugins/dsh-lan-guard/config',
+      '/plugins/dsh-lan-guard/auth-status',
+      '/plugins/dsh-lan-guard/devices',
+      '/plugins/dsh-lan-guard/port-check',
+    ])
+    expect(disposers).toHaveLength(1)
+
+    await disposers[0]?.()
+    await expect(requestTo(port, { path: '/', headers: { connection: 'close' } })).rejects.toThrow()
+  })
+
+  it('does not take the plugin down when the settings service is unavailable', async () => {
+    fake = await startFakeDsh()
+    const port = await freePort()
+    const ctx = {
+      logger: () => silentLogger(),
+      connection: { authenticatedUrl: fake.authenticatedUrl, requestRejection: () => undefined },
+      // `settings` is intentionally absent: accessing it throws in Cordis.
+      get webServer() {
+        return { port: 3080, register: () => () => {} } as unknown as WebServerLike
+      },
+      effect: () => {},
+    } as unknown as Context
+
+    await apply(ctx, {
+      dataDir: await tmpDataDir(),
+      listenPort: port,
+      upstreamOrigin: fake.origin,
+      tls: { mode: 'off' },
+      auth: { allowLoopback: true },
+    })
+    const response = await requestTo(port, { path: '/' })
+    expect(response.status).toBe(200)
+  })
+})

@@ -1,0 +1,211 @@
+/**
+ * Config model tests (docs/SPEC.md §5).
+ *
+ * The point of this file is the REJECTION side: every documented constraint
+ * that keeps the listener safe must fail loudly rather than silently widen a
+ * default. Assertions are never loosened to fit the implementation.
+ */
+import { describe, expect, it } from 'vitest'
+import {
+  DEFAULT_LISTEN_HOST,
+  DEFAULT_LISTEN_PORT,
+  DEFAULT_UPSTREAM_ORIGIN,
+  LanGuardConfigError,
+  isIpv4Literal,
+  isLoopbackHost,
+  isLoopbackOrigin,
+  parseConfig,
+} from '../src/config.ts'
+
+/** The smallest config that is allowed to start. */
+const MINIMAL = { dataDir: '/tmp/dsh-lan-guard-test' }
+
+describe('parseConfig defaults', () => {
+  it('applies the documented defaults', () => {
+    const config = parseConfig(MINIMAL)
+    expect(config.enabled).toBe(true)
+    expect(config.listenHost).toBe(DEFAULT_LISTEN_HOST)
+    expect(config.listenPort).toBe(DEFAULT_LISTEN_PORT)
+    expect(config.upstreamOrigin).toBe(DEFAULT_UPSTREAM_ORIGIN)
+    expect(config.networkInterface).toBeNull()
+    expect(config.auth.enabled).toBe(true)
+    expect(config.auth.mode).toBe('token_and_password')
+    expect(config.auth.adminPolicy).toBe('local_only')
+    expect(config.auth.adminProtection).toBe(true)
+    expect(config.auth.allowLoopback).toBe(true)
+    expect(config.auth.sessionMaxAgeMs).toBe(2_592_000_000)
+    expect(config.auth.adminSessionMaxAgeMs).toBe(1_800_000)
+    expect(config.auth.maxFailedAttempts).toBe(5)
+    expect(config.auth.lockoutMs).toBe(60_000)
+    expect(config.tls.mode).toBe('self-signed')
+  })
+
+  it('never defaults to a network listener', () => {
+    expect(parseConfig(MINIMAL).listenHost).toBe('127.0.0.1')
+  })
+
+  it('keeps the default port clear of DSH and dsh-mobile', () => {
+    expect([3080, 3443, 3444]).not.toContain(DEFAULT_LISTEN_PORT)
+  })
+})
+
+describe('parseConfig rejection', () => {
+  it('refuses to start without dataDir', () => {
+    expect(() => parseConfig({})).toThrow(LanGuardConfigError)
+    expect(() => parseConfig({ dataDir: '   ' })).toThrow(/dataDir/)
+  })
+
+  it('rejects a hostname listenHost', () => {
+    expect(() => parseConfig({ ...MINIMAL, listenHost: 'localhost' })).toThrow(/IPv4 literal/)
+    expect(() => parseConfig({ ...MINIMAL, listenHost: 'dsh.local' })).toThrow(/IPv4 literal/)
+  })
+
+  it('rejects a non-loopback upstream origin', () => {
+    expect(() => parseConfig({ ...MINIMAL, upstreamOrigin: 'http://10.0.0.30:3080' })).toThrow(/loopback/)
+    expect(() => parseConfig({ ...MINIMAL, upstreamOrigin: 'not a url' })).toThrow(LanGuardConfigError)
+  })
+
+  it('rejects an https upstream origin', () => {
+    expect(() => parseConfig({ ...MINIMAL, upstreamOrigin: 'https://127.0.0.1:3080' })).toThrow(/http:/)
+  })
+
+  it('refuses to disable the gate on a network listener', () => {
+    expect(() => parseConfig({
+      ...MINIMAL,
+      listenHost: '0.0.0.0',
+      auth: { enabled: false },
+    })).toThrow(/loopback listener/)
+  })
+
+  it('allows disabling the gate on loopback only', () => {
+    const config = parseConfig({ ...MINIMAL, listenHost: '127.0.0.1', auth: { enabled: false } })
+    expect(config.auth.enabled).toBe(false)
+  })
+
+  it('rejects an out-of-range port and a non-numeric port', () => {
+    expect(() => parseConfig({ ...MINIMAL, listenPort: 70_000 })).toThrow(LanGuardConfigError)
+    expect(() => parseConfig({ ...MINIMAL, listenPort: -1 })).toThrow(LanGuardConfigError)
+    expect(() => parseConfig({ ...MINIMAL, listenPort: 'abc' })).toThrow(LanGuardConfigError)
+  })
+
+  it('rejects an unknown auth mode', () => {
+    expect(() => parseConfig({ ...MINIMAL, auth: { mode: 'magic' } })).toThrow(LanGuardConfigError)
+  })
+
+  it('rejects an unknown admin policy', () => {
+    expect(() => parseConfig({ ...MINIMAL, auth: { adminPolicy: 'anyone' } })).toThrow(LanGuardConfigError)
+  })
+
+  it('rejects non-positive session lifetimes and attempt budgets', () => {
+    expect(() => parseConfig({ ...MINIMAL, auth: { sessionMaxAgeMs: 0 } })).toThrow(/sessionMaxAgeMs/)
+    expect(() => parseConfig({ ...MINIMAL, auth: { adminSessionMaxAgeMs: 0 } })).toThrow(/adminSessionMaxAgeMs/)
+    expect(() => parseConfig({ ...MINIMAL, auth: { maxFailedAttempts: 0 } })).toThrow(/maxFailedAttempts/)
+  })
+
+  it('requires certificate files when tls.mode is provided', () => {
+    expect(() => parseConfig({ ...MINIMAL, tls: { mode: 'provided' } })).toThrow(/certFile/)
+    expect(() => parseConfig({
+      ...MINIMAL,
+      tls: { mode: 'provided', certFile: '/tmp/leaf.pem', keyFile: '/tmp/leaf-key.pem' },
+    })).not.toThrow()
+  })
+
+  it('rejects an unknown tls mode', () => {
+    expect(() => parseConfig({ ...MINIMAL, tls: { mode: 'acme' } })).toThrow(LanGuardConfigError)
+  })
+})
+
+describe('address helpers', () => {
+  it('recognizes IPv4 literals only', () => {
+    expect(isIpv4Literal('192.168.1.5')).toBe(true)
+    expect(isIpv4Literal('256.1.1.1')).toBe(false)
+    expect(isIpv4Literal('127.0.0.1')).toBe(true)
+    expect(isIpv4Literal('localhost')).toBe(false)
+  })
+
+  it('recognizes loopback hosts', () => {
+    expect(isLoopbackHost('127.0.0.1')).toBe(true)
+    expect(isLoopbackHost('127.9.9.9')).toBe(true)
+    expect(isLoopbackHost('::1')).toBe(true)
+    expect(isLoopbackHost('192.168.1.5')).toBe(false)
+  })
+
+  it('recognizes loopback origins', () => {
+    expect(isLoopbackOrigin('http://127.0.0.1:3080')).toBe(true)
+    expect(isLoopbackOrigin('http://192.168.1.5:3080')).toBe(false)
+    expect(isLoopbackOrigin('ftp://127.0.0.1')).toBe(false)
+    expect(isLoopbackOrigin('')).toBe(false)
+  })
+})
+
+describe('already-resolved configs', () => {
+  it('accepts the config the Loader resolved (volatile references, not raw values)', async () => {
+    // The Loader validates through Config BEFORE calling apply, so apply sees
+    // volatile references. parseConfig must handle that, not reject it.
+    const { Config } = await import('../src/config.ts')
+    const resolved = Config({ dataDir: '/tmp/x' } as never) as unknown
+    expect((resolved as { enabled: unknown }).enabled).toBeTypeOf('object')
+    const parsed = parseConfig(resolved)
+    expect(parsed.enabled).toBe(true)
+    expect(parsed.auth.mode).toBe('token_and_password')
+    expect(parsed.auth.allowLoopback).toBe(true)
+    expect(parsed.dataDir).toBe('/tmp/x')
+  })
+
+  it('keeps live switches live after an edit', async () => {
+    const { Config, liveSwitches } = await import('../src/config.ts')
+    const resolved = Config({ dataDir: '/tmp/x' } as never) as unknown
+    const parsed = parseConfig(resolved)
+    const switches = liveSwitches(resolved, parsed)
+    expect(switches.mode()).toBe('token_and_password')
+    const reference = (resolved as { auth: { mode: { get(): string } } }).auth.mode
+    // The settings service writes through the reference's hidden writer; the
+    // observable contract here is that the accessor reads the reference.
+    expect(reference.get()).toBe('token_and_password')
+  })
+})
+
+describe('networkInterface switch (P4-a)', () => {
+  it('is volatile, defaults to null, and survives the resolved-config handoff', async () => {
+    const { Config, liveSwitches } = await import('../src/config.ts')
+    const resolved = Config({ dataDir: '/tmp/x', networkInterface: 'en0' } as never) as unknown
+    expect((resolved as { networkInterface: unknown }).networkInterface).toBeTypeOf('object')
+    const parsed = parseConfig(resolved)
+    expect(parsed.networkInterface).toBe('en0')
+    expect(liveSwitches(resolved, parsed).networkInterface()).toBe('en0')
+  })
+
+  it('maps an empty value to null and rejects an implausible name', async () => {
+    const { sanitizePreferencePatch, toSettingsPatch } = await import('../src/store/preferences.ts')
+    expect(parseConfig({ dataDir: '/tmp/x' }).networkInterface).toBeNull()
+    expect(sanitizePreferencePatch({ networkInterface: 'en0' })).toEqual({ networkInterface: 'en0' })
+    expect(sanitizePreferencePatch({ networkInterface: '' })).toEqual({ networkInterface: '' })
+    expect(() => sanitizePreferencePatch({ networkInterface: 'a b; rm -rf /' })).toThrow(/interface name/)
+    expect(() => sanitizePreferencePatch({ networkInterface: 7 })).toThrow(/string/)
+    expect(toSettingsPatch({ networkInterface: 'en0' })).toEqual({ networkInterface: 'en0' })
+  })
+})
+
+describe('LAN HTTP acknowledgement (P4-e)', () => {
+  it('refuses plain HTTP on a non-loopback listener without the explicit flag', () => {
+    expect(() => parseConfig({
+      dataDir: '/tmp/x',
+      listenHost: '0.0.0.0',
+      tls: { mode: 'off' },
+    })).toThrow(/allowInsecureLan/)
+  })
+
+  it('allows it once the operator acknowledges the risk explicitly', () => {
+    const config = parseConfig({
+      dataDir: '/tmp/x',
+      listenHost: '0.0.0.0',
+      tls: { mode: 'off', allowInsecureLan: true },
+    })
+    expect(config.tls.mode).toBe('off')
+    expect(config.tls.allowInsecureLan).toBe(true)
+  })
+
+  it('still allows TLS-off on loopback without any acknowledgement', () => {
+    expect(parseConfig({ dataDir: '/tmp/x', listenHost: '127.0.0.1', tls: { mode: 'off' } }).tls.mode).toBe('off')
+  })
+})

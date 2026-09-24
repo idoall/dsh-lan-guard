@@ -1,0 +1,11 @@
+# Bundle patch layer: the row loads the package's main entry as the host half
+# (a plain Cordis plugin whose exported Config IS the `dsh-lan-guard` settings
+# form — DSH 0.1.7 identifies a form by the Loader entry id, so the `id` below
+# is the storage namespace and must not change).
+#
+# No config block on purpose: `dataDir` has no safe default (the plugin never
+# guesses a profile path — see docs/SPEC.md §5), so a fresh install starts
+# inert and logs the exact field to set. Add your own config under this row.
+- insert:
+    - id: dsh-lan-guard
+      name: dsh-lan-guard
