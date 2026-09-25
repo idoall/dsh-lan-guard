@@ -256,16 +256,20 @@ const CSS = `
   color:var(--dsw-alias-label-primary,#1f2329);margin-bottom:8px}
 .lg-sec-title{margin:18px 0 2px;font:var(--dsw-font-s-strong-14,500 14px/22px sans-serif);
   color:var(--dsw-alias-label-secondary,#adb2b8)}
-.lg-chip.ok,.lg-chip.wait,.lg-chip.ban{margin-left:6px}
+.lg-chip.ok,.lg-chip.wait,.lg-chip.ban{margin-left:5px;flex-shrink:0}
 .lg-chip.wait{background:var(--dsw-alias-state-warn-tertiary,#3a2f16);color:var(--dsw-alias-state-warn-label,#fbbf24)}
 .lg-chip.ban{background:var(--dsw-static-red-600-a08,#ec13131f);color:var(--dsw-static-red-400,#f25a5a)}
 .lg-danger{color:var(--dsw-static-red-400,#f25a5a);border-color:var(--dsw-static-red-400,#f25a5a)}
-.lg-device{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:12px;
-  flex-wrap:wrap;
-  padding:10px 12px;border-radius:10px;background:var(--dsw-alias-bg-base,#f1f2f4);
-  border:1px solid var(--dsw-alias-border-l2,#e5e6eb)}
-.lg-device>div:first-child{min-width:0;flex:1 1 auto}
-.lg-device-name{font:var(--dsw-font-s-strong-14,500 14px/22px sans-serif);
+.lg-device{display:block;margin-top:12px;padding:10px 12px;border-radius:10px;
+  background:var(--dsw-alias-bg-base,#f1f2f4);border:1px solid var(--dsw-alias-border-l2,#e5e6eb)}
+.lg-device-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.lg-name-chip{display:inline-flex;align-items:center;min-width:0}
+.lg-device-actions{display:inline-flex;align-items:center;gap:8px;flex-shrink:0}
+.lg-device-meta{margin-top:6px;color:var(--dsw-alias-label-tertiary,#979da6);
+  font:var(--dsw-font-xxs-12,12px/18px sans-serif)}
+.lg-device-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  font:var(--dsw-font-s-strong-14,500 14px/22px sans-serif);
+  color:var(--dsw-alias-label-primary,#1f2329)}
   color:var(--dsw-alias-label-primary,#1f2329)}
 .lg-recover{margin-top:8px;text-align:left;width:100%}
 .lg-recover p{font:var(--dsw-font-xs-13,13px/20px sans-serif);margin:0 0 6px;
@@ -757,7 +761,7 @@ function SettingsSection(): ReactElement {
     { key: 'blocked', title: '已拉黑', list: snapshot.devices.filter(entry => entry.status === 'blocked') },
   ]
   const statusChip = (status: string): ReactElement => createElement('span', {
-    className: status === 'blocked' ? 'lg-chip ban' : status === 'pending' ? 'lg-chip wait' : 'lg-chip',
+    className: status === 'blocked' ? 'lg-chip ban' : status === 'pending' ? 'lg-chip wait' : 'lg-chip ok',
   }, status === 'blocked' ? '已拉黑' : status === 'pending' ? '待批准' : '已批准')
   const devButton = (label: string, action: string, id: string, danger: boolean): ReactElement =>
     createElement('button', {
@@ -811,21 +815,21 @@ function SettingsSection(): ReactElement {
               createElement('div', { key: 't', className: 'lg-sec-title' },
                 `${group.title}（${String(group.list.length)}）`),
               ...group.list.map(device => createElement('div', { key: device.id, className: 'lg-device' }, [
-                createElement('div', { key: 'meta' }, [
-                  createElement('div', { key: 'l', className: 'lg-device-name' }, [
-                    device.label,
+                createElement('div', { key: 'head', className: 'lg-device-head' }, [
+                  createElement('span', { key: 'nc', className: 'lg-name-chip' }, [
+                    createElement('span', { key: 'n', className: 'lg-device-name' }, device.label),
                     statusChip(device.status),
                   ]),
-                  createElement('div', { key: 'd', className: 'lg-hint' },
-                    `创建 ${when(device.createdAtMs)} · 最近使用 ${when(device.lastSeenAtMs)}`
-                    + ` · 来源 ${device.lastIp ?? '—'}`),
+                  createElement('span', { key: 'a', className: 'lg-device-actions' },
+                    device.status === 'pending'
+                      ? [devButton('批准', 'approve', device.id, false), devButton('拒绝并拉黑', 'block', device.id, true)]
+                      : device.status === 'blocked'
+                        ? [devButton('解除拉黑', 'unblock', device.id, false)]
+                        : [devButton('吊销并拉黑', 'block', device.id, true)]),
                 ]),
-                createElement('div', { key: 'a', className: 'lg-row' },
-                  device.status === 'pending'
-                    ? [devButton('批准', 'approve', device.id, false), devButton('拒绝并拉黑', 'block', device.id, true)]
-                    : device.status === 'blocked'
-                      ? [devButton('解除拉黑', 'unblock', device.id, false)]
-                      : [devButton('吊销并拉黑', 'block', device.id, true)]),
+                createElement('div', { key: 'd', className: 'lg-device-meta' },
+                  `创建 ${when(device.createdAtMs)} · 最近使用 ${when(device.lastSeenAtMs)}`
+                  + ` · 来源 ${device.lastIp ?? '—'}`),
               ])),
             ]))),
       ],
