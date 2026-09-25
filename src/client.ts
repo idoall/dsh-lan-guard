@@ -27,8 +27,6 @@ import { createElement, useCallback, useEffect, useState, type ReactElement } fr
 const PLUGIN_ID = 'dsh-lan-guard'
 /** The official additive settings seat. */
 const SEAT = 'settings.section'
-/** The official additive frame-wide overlay seat (never replaces anything). */
-const OVERLAY_SEAT = 'shell.overlay'
 /** The management endpoint on DSH's own origin. */
 const CONFIG_PATH = '/plugins/dsh-lan-guard/config'
 
@@ -152,15 +150,6 @@ const CSS = `
  * my own invention and made 2 of 3 tabs look like they had not been themed
  * (user feedback 2026-09-24).
  */
-/* Frame-wide status pill (official additive shell.overlay seat). */
-.lg-ov{position:fixed;right:16px;bottom:16px;z-index:40;display:flex;align-items:center;gap:8px;
-  padding:6px 10px;border-radius:999px;background:var(--dsw-alias-bg-layer-3,#2c2c2e);
-  border:1px solid var(--dsw-alias-border-l2,#e5e6eb);color:var(--dsw-alias-label-primary,#1f2329);
-  font:var(--dsw-font-xxs-12,12px/18px sans-serif);box-shadow:0 6px 20px rgba(0,0,0,.18)}
-.lg-ov-code{font-family:var(--ds-font-family-code,ui-monospace,monospace);
-  color:var(--dsw-alias-label-secondary,#6b7280)}
-.lg-ov-x{border:0;background:transparent;cursor:pointer;padding:0 2px;color:var(--dsw-alias-label-tertiary,#6b7280);
-  font:var(--dsw-font-xxs-12,12px/18px sans-serif)}
 .lg-tabs{display:flex;gap:8px;flex-wrap:wrap}
 .lg-tab{font:var(--dsw-font-s-14,14px/22px sans-serif);cursor:pointer;
   color:var(--dsw-alias-label-primary,#1f2329);background:transparent;
@@ -982,59 +971,6 @@ function SettingsSection(): ReactElement {
 const DEFAULT_PORT_HINT = 3081
 
 /**
- * Frame-wide status pill (the official ADDITIVE `shell.overlay` seat — it adds
- * a surface beside the shipped entries and replaces nothing).
- *
- * Shown only to the machine's own operator (`localAccess`), because a phone is
- * already inside the console and does not need to be told its own address.
- */
-function StatusOverlay(): ReactElement | null {
-  const [snapshot, setSnapshot] = useState<ConfigSnapshot | null>(null)
-  const [dismissed, setDismissed] = useState<boolean>(() => {
-    try {
-      return sessionStorage.getItem('lg-overlay-dismissed') === '1'
-    } catch {
-      return false
-    }
-  })
-
-  useEffect(() => {
-    void (async () => {
-      try {
-        setSnapshot(await loadSnapshot())
-      } catch {
-        setSnapshot(null)
-      }
-    })()
-  }, [])
-
-  if (dismissed || snapshot === null) return null
-  if (!snapshot.authStatus.pluginEnabled || !snapshot.authStatus.localAccess) return null
-  const url = snapshot.access.tokenUrl ?? snapshot.access.selectedUrl
-  if (url === null || url === undefined) return null
-
-  return createElement('div', { className: 'lg-ov' }, [
-    createElement('style', { key: 'css' }, CSS),
-    createElement('span', { key: 't' }, '🌐 局域网访问已开启'),
-    createElement('span', { key: 'u', className: 'lg-ov-code' }, url),
-    createElement('button', {
-      key: 'x',
-      type: 'button',
-      className: 'lg-ov-x',
-      title: '本次会话不再显示',
-      onClick: () => {
-        try {
-          sessionStorage.setItem('lg-overlay-dismissed', '1')
-        } catch {
-          // A blocked sessionStorage only means the pill comes back next load.
-        }
-        setDismissed(true)
-      },
-    }, '✕'),
-  ])
-}
-
-/**
  * Register the settings section.
  *
  * @param ctx - the client plugin context (injects `slots`).
@@ -1049,11 +985,6 @@ export function apply(ctx: {
   ctx.slots.inject(SEAT, () => ctx.slots.register(
     { name: SEAT, id: PLUGIN_ID, order: 100, label: '局域网访问' },
     SettingsSection,
-  ))
-  // Additive frame-wide surface: it sits BESIDE the shipped overlay entries.
-  ctx.slots.inject(OVERLAY_SEAT, () => ctx.slots.register(
-    { name: OVERLAY_SEAT, id: `${PLUGIN_ID}-status`, order: 200 },
-    StatusOverlay,
   ))
 }
 
