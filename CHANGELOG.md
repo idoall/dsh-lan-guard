@@ -57,6 +57,21 @@
 
 > 顺带记录一个**不是本插件的问题**：DSH 官方设置弹窗在 390px 视口下自身就会崩（导航列不折叠、内容被挤到约 63px 逐字竖排）。手机用户用的是代理出去的官方界面，不会打开这个弹窗。
 
+### 改进 — 可复制字段改为单行横向滚动（2026-09-26 用户要求）
+
+**症状**：访问地址在卡片里**硬折行成两行**，占掉垂直空间，能展示的内容变少。
+
+**改动**：新增 `.lg-mono-scroll`，应用于**所有"可复制字段"**——访问地址（扫码访问 tab）与升级命令（更新面板）：
+
+- `white-space:nowrap` + `overflow-x:auto` + `word-break:normal`（覆盖 `.lg-mono` 的 `break-all`，规则位置放在其后以确保生效）；
+- 6px 细滚动条（WebKit 伪元素 + `scrollbar-width:thin`），光标为 `cursor:text`，框内拖动即选中并自动横向滚动；
+- 加 `title` 属性，悬停可见完整值；
+- **复制仍然复制全文**：`copy()` 写入的是源字符串 `scanUrl`（即 DOM 里的完整值），与滚动位置、是否被裁剪无关；实测 DOM 文本长度 69，与端点返回的 `tokenUrl` 完全一致。
+
+**实测**（真实 DSH，`getComputedStyle`）：`white-space:nowrap`、`overflow-x:auto`、`word-break:normal`、`scrollWidth 564 > clientWidth 519`（确实可滚动）；框高从两行的约 62px 降到**单行 42px**。
+
+> 说明：macOS 的覆盖式滚动条默认只在滚动时出现；框内拖动会选中并自动横向滚动，另有 `title` 悬停提示，因此不额外加渐隐遮罩（渐隐在滚到末尾时反而像被截断）。
+
 ### 修复 — 安装后设置页显示 `settings request failed: 404`，插件根本没启动
 
 **症状**：`dsh plugin --profile web add dsh-lan-guard@0.3.1` 装好并重启 dsh 后，**设置 → 局域网访问** 只显示 `settings request failed: 404`。

@@ -242,6 +242,18 @@ const CSS = `
   font:var(--dsw-font-xs-13,13px/20px sans-serif);
   font-family:var(--ds-font-family-code,ui-monospace,SFMono-Regular,Menlo,monospace);
   word-break:break-all;color:var(--dsw-alias-label-primary,#1f2329)}
+/* Copyable values (the access URL, the upgrade command) are SINGLE-LINE fields:
+   no hard wrapping, horizontal scrolling instead, so a long URL can no longer
+   push the rest of the card down (user request 2026-09-26). Scrolling never
+   truncates what you get — the copy button writes the source string, never the
+   rendered text — and the thin scrollbar makes "there is more to the right"
+   visible. Dragging inside the field selects and auto-scrolls, like a text box. */
+.lg-mono-scroll{white-space:nowrap;overflow-x:auto;overflow-y:hidden;word-break:normal;
+  cursor:text;scrollbar-width:thin}
+.lg-mono-scroll::-webkit-scrollbar{height:6px}
+.lg-mono-scroll::-webkit-scrollbar-track{background:transparent}
+.lg-mono-scroll::-webkit-scrollbar-thumb{border-radius:999px;
+  background:color-mix(in srgb, var(--dsw-alias-label-tertiary,#adb2b8) 55%, transparent)}
 .lg-row{display:flex;gap:10px;margin-top:12px}
 /* auto-fit: two options (TLS) fill the row evenly instead of leaving a third
    of the row empty, and three options (mode) still fit on one line. */
@@ -684,7 +696,11 @@ function SettingsSection(): ReactElement {
                 + '门禁此刻拒绝所有设备，不会泄露数据；请先设置访问密码')),
           hasPassword ? null : goSecurity,
         ]),
-        createElement('div', { className: 'lg-mono', key: 'url' }, scanUrl ?? '—'),
+        createElement('div', {
+          className: 'lg-mono lg-mono-scroll',
+          key: 'url',
+          title: scanUrl ?? '',
+        }, scanUrl ?? '—'),
         createElement('div', { className: 'lg-row', key: 'copy' }, [
           createElement('button', {
             key: 'c',
@@ -1117,8 +1133,11 @@ function SettingsSection(): ReactElement {
     : createElement('div', { className: 'lg-update-panel', key: 'updatepanel' }, [
       createElement('div', { key: 't', className: 'lg-update-title' },
         `发现新版本 v${String(update.latest)}（当前 v${update.current}）`),
-      createElement('div', { key: 'c', className: 'lg-mono' },
-        `dsh plugin --profile web add dsh-lan-guard@${String(update.latest)}`),
+      createElement('div', {
+        key: 'c',
+        className: 'lg-mono lg-mono-scroll',
+        title: `dsh plugin --profile web add dsh-lan-guard@${String(update.latest)}`,
+      }, `dsh plugin --profile web add dsh-lan-guard@${String(update.latest)}`),
       createElement('div', { className: 'lg-row', key: 'r' }, [
         createElement('button', {
           key: 'cp',
