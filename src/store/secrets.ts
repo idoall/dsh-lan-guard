@@ -52,7 +52,14 @@ export interface DeviceRecord {
   lastIp: string | null
   /** Revocation time, or `null` while active. */
   revokedAtMs: number | null
+  /** F9 state: pending approval, approved, or permanently blocked. */
+  status: DeviceStatus
+  /** When the operator decided (approved / blocked), or `null`. */
+  decidedAtMs: number | null
 }
+
+/** F9 device states. */
+export type DeviceStatus = 'pending' | 'approved' | 'blocked'
 
 /** One persisted visitor session. */
 export interface SessionRecord {
@@ -198,12 +205,20 @@ export class SecretsStore {
   async loadDevices(): Promise<DeviceRecord[]> {
     const parsed = await readJson<{ version?: number; devices?: unknown }>(this.devicesPath, this.#logger)
     if (parsed === undefined || !Array.isArray(parsed.devices)) return []
-    return parsed.devices.filter((entry): entry is DeviceRecord => (
-      typeof entry === 'object' && entry !== null
-      && typeof (entry as DeviceRecord).id === 'string'
-      && typeof (entry as DeviceRecord).label === 'string'
-      && typeof (entry as DeviceRecord).tokenHash === 'string'
-    ))
+    return parsed.devices
+      .filter((entry): entry is DeviceRecord => (
+        typeof entry === 'object' && entry !== null
+        && typeof (entry as DeviceRecord).id === 'string'
+        && typeof (entry as DeviceRecord).label === 'string'
+        && typeof (entry as DeviceRecord).tokenHash === 'string'
+      ))
+      // Records written before F9 have no status: they were let in, so they
+      // stay approved. Migration happens on load, never on disk eagerly.
+      .map(entry => ({
+        ...entry,
+        status: entry.status === 'pending' || entry.status === 'blocked' ? entry.status : 'approved',
+        decidedAtMs: entry.decidedAtMs ?? null,
+      }))
   }
 
   /** Persist paired devices with mode 600. */

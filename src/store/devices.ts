@@ -15,7 +15,7 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import type { LanGuardLogger } from '../log.ts'
 import { noopLogger } from '../log.ts'
-import type { SecretsStore, DeviceRecord } from './secrets.ts'
+import type { DeviceRecord, DeviceStatus, SecretsStore } from './secrets.ts'
 
 /** How long a device's "last seen" may go unrefreshed before it is rewritten. */
 const TOUCH_INTERVAL_MS = 5 * 60 * 1_000
@@ -58,6 +58,18 @@ export class DeviceRegistry {
     this.#devices = await this.#store.loadDevices()
   }
 
+  /** The device behind a cookie, whatever its state (used for the gate's pages). */
+  lookup(token: string): DeviceRecord | undefined {
+    if (!isDeviceToken(token)) return undefined
+    const presented = Buffer.from(hashToken(token), 'utf8')
+    for (const device of this.#devices) {
+      const stored = Buffer.from(device.tokenHash, 'utf8')
+      if (stored.byteLength !== presented.byteLength) continue
+      if (timingSafeEqual(stored, presented)) return device
+    }
+    return undefined
+  }
+
   /** Active and revoked devices, newest first. */
   list(): DeviceRecord[] {
     return [...this.#devices].sort((left, right) => right.createdAtMs - left.createdAtMs)
@@ -74,7 +86,7 @@ export class DeviceRegistry {
    * @param label - operator-facing name.
    * @returns the stored record plus the plaintext token.
    */
-  async add(label: string): Promise<{ device: DeviceRecord; token: string }> {
+  async add(label: string, options: { pending?: boolean } = {}): Promise<{ device: DeviceRecord; token: string }> {
     const token = `${DEVICE_TOKEN_PREFIX}${randomBytes(18).toString('hex')}`
     const device: DeviceRecord = {
       id: randomBytes(4).toString('hex'),
@@ -84,6 +96,8 @@ export class DeviceRegistry {
       lastSeenAtMs: null,
       lastIp: null,
       revokedAtMs: null,
+      status: options.pending === true ? 'pending' : 'approved',
+      decidedAtMs: options.pending === true ? null : this.#now(),
     }
     this.#devices = [...this.#devices, device]
     await this.#store.saveDevices(this.#devices)
@@ -124,17 +138,42 @@ export class DeviceRegistry {
     return true
   }
 
+  /** Set a device's F9 state (approve / block / unblock). */
+  async setStatus(id: string, status: DeviceStatus): Promise<boolean> {
+    const target = this.#devices.find(device => device.id === id)
+    if (target === undefined || target.status === status) return false
+    this.#devices = this.#devices.map(device => (
+      device.id === id
+        // Blocking keeps the record (and its hash) so the ban is permanent;
+        // unblocking clears it explicitly.
+        ? { ...device, status, decidedAtMs: this.#now(), revokedAtMs: null }
+        : device
+    ))
+    await this.#store.saveDevices(this.#devices)
+    this.#logger.info('device status changed id=%s status=%s', id, status)
+    return true
+  }
+
+  /** How many devices are waiting for approval. */
+  get pendingCount(): number {
+    return this.#devices.filter(device => device.status === 'pending').length
+  }
+
   /**
    * Verify a presented device token.
    *
+   * Only `approved` devices authenticate: a `pending` one is not refused as an
+   * intruder (the gate shows it the waiting page) and a `blocked` one never
+   * gets in again, even after re-pairing with the password.
+   *
    * @param token - the `?auth=` value.
-   * @returns the matching active device, or `undefined`.
+   * @returns the matching approved device, or `undefined`.
    */
   verify(token: string): DeviceRecord | undefined {
     if (!isDeviceToken(token)) return undefined
     const presented = Buffer.from(hashToken(token), 'utf8')
     for (const device of this.#devices) {
-      if (device.revokedAtMs !== null) continue
+      if (device.revokedAtMs !== null || device.status !== 'approved') continue
       const stored = Buffer.from(device.tokenHash, 'utf8')
       if (stored.byteLength !== presented.byteLength) continue
       if (timingSafeEqual(stored, presented)) return device

@@ -1,5 +1,19 @@
 # Changelog
 
+## [Unreleased]
+
+### 新增 — 设备批准与永久拉黑（SPEC F9，方案 A，进行中）
+
+第一步：**数据模型与设计文档**（本轮完成）
+
+- `DeviceRecord` 新增 `status`（`pending` / `approved` / `blocked`）与 `decidedAtMs`；
+- **加载时迁移**：F9 之前写入的记录没有 `status`，加载即视为 `approved`，不打断既有设备；
+- 注册表新增三态 API：`add(label, { pending })`、`setStatus(id, status)`、`lookup(token)`（不论状态都能查到，供门禁渲染等待页）、`pendingCount`；
+- `verify()` 收紧为**只认 `approved`**：`pending` 不放行（门禁给等待页）、`blocked` 永不放行且记录保留（这正是「永久拉黑」的实现方式，不依赖设备指纹）；
+- 测试新增 4 项（待批准不放行但可查、批准后放行、拉黑后拒绝且记录保留、解除拉黑是唯一出路、旧记录迁移为已批准、空操作不写盘）；`pnpm test` **223 项**全绿。
+
+待续：`auth.requireApproval` 开关、门禁等待页与 `blocked` 拒绝、批准/拉黑/解除端点、设置页三组列表与两个开关、手机侧等待批准页。
+
 ## [0.2.0] — 2026-09-25
 
 ### 新增 — 升级检测（SPEC F8，方案 A）

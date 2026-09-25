@@ -116,3 +116,55 @@ describe('concurrent bookkeeping (the 2026-09-24 crash)', () => {
     expect(devices.list()[0]?.lastIp).toBe('10.0.0.10')
   })
 })
+
+describe('F9 device states (pending / approved / blocked)', () => {
+  it('approves by default and gates a pending device', async () => {
+    const { registry: devices } = await registry()
+    const { device, token } = await devices.add('手机', { pending: true })
+    expect(device.status).toBe('pending')
+    // Pending devices do not authenticate, but the gate can still look them up
+    // to show the waiting page.
+    expect(devices.verify(token)).toBeUndefined()
+    expect(devices.lookup(token)?.status).toBe('pending')
+    expect(devices.pendingCount).toBe(1)
+
+    expect(await devices.setStatus(device.id, 'approved')).toBe(true)
+    expect(devices.verify(token)?.id).toBe(device.id)
+    expect(devices.pendingCount).toBe(0)
+  })
+
+  it('keeps a blocked device out even after re-pairing is attempted', async () => {
+    const { registry: devices } = await registry()
+    const { device, token } = await devices.add('旧手机')
+    expect(devices.verify(token)).toBeDefined()
+
+    expect(await devices.setStatus(device.id, 'blocked')).toBe(true)
+    expect(devices.verify(token)).toBeUndefined()
+    expect(devices.lookup(token)?.status).toBe('blocked')
+    // The record is kept on purpose: that is what makes the ban permanent.
+    expect(devices.list().some(entry => entry.id === device.id)).toBe(true)
+
+    // Unblocking is the only way back, and it is an explicit operator action.
+    expect(await devices.setStatus(device.id, 'approved')).toBe(true)
+    expect(devices.verify(token)).toBeDefined()
+  })
+
+  it('treats a record written before F9 as approved (migration on load)', async () => {
+    const store = new SecretsStore(await tmpDataDir())
+    await store.saveDevices([{
+      id: 'legacy', label: '旧记录', tokenHash: 'x'.repeat(64),
+      createdAtMs: 1, lastSeenAtMs: null, lastIp: null, revokedAtMs: null,
+    } as never])
+    const devices = new DeviceRegistry({ store })
+    await devices.init()
+    expect(devices.list()[0]?.status).toBe('approved')
+    expect(devices.pendingCount).toBe(0)
+  })
+
+  it('ignores a no-op status change', async () => {
+    const { registry: devices } = await registry()
+    const { device } = await devices.add('手机')
+    expect(await devices.setStatus(device.id, 'approved')).toBe(false)
+    expect(await devices.setStatus('nope', 'blocked')).toBe(false)
+  })
+})
