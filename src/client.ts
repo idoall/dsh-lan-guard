@@ -213,7 +213,7 @@ const CSS = `
   border:1px solid var(--dsw-alias-border-l2,#d0d3d9)}
 .lg-btn:disabled{opacity:.55;cursor:not-allowed}
 .lg-btn.full{width:100%}
-.lg-btn-small{height:28px;padding:0 10px;font:var(--dsw-font-xxs-12,12px/18px sans-serif)}
+.lg-btn-small{height:28px;padding:0 10px;white-space:nowrap;flex-shrink:0;font:var(--dsw-font-xxs-12,12px/18px sans-serif)}
 .lg-toggle{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:14px;
   font:var(--dsw-font-s-14,14px/22px sans-serif);color:var(--dsw-alias-label-primary,#1f2329)}
 .lg-switch{width:48px;height:28px;border-radius:999px;border:1px solid var(--dsw-alias-border-l2,#d0d3d9);
@@ -261,8 +261,10 @@ const CSS = `
 .lg-chip.ban{background:var(--dsw-static-red-600-a08,#ec13131f);color:var(--dsw-static-red-400,#f25a5a)}
 .lg-danger{color:var(--dsw-static-red-400,#f25a5a);border-color:var(--dsw-static-red-400,#f25a5a)}
 .lg-device{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:12px;
+  flex-wrap:wrap;
   padding:10px 12px;border-radius:10px;background:var(--dsw-alias-bg-base,#f1f2f4);
   border:1px solid var(--dsw-alias-border-l2,#e5e6eb)}
+.lg-device>div:first-child{min-width:0;flex:1 1 auto}
 .lg-device-name{font:var(--dsw-font-s-strong-14,500 14px/22px sans-serif);
   color:var(--dsw-alias-label-primary,#1f2329)}
 .lg-recover{margin-top:8px;text-align:left;width:100%}
