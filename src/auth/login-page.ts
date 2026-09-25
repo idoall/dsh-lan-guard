@@ -20,7 +20,7 @@ import type { AuthMode } from '../config.ts'
 /** Which state the login page should render. */
 export type LoginState =
   | 'prompt' | 'invalid' | 'locked' | 'no-password' | 'csrf' | 'token-only'
-  | 'device-removed' | 'pending-approval'
+  | 'device-removed' | 'pending-approval' | 'link-inactive'
 
 /** Options for {@link renderLoginPage}. */
 export interface LoginPageOptions {
@@ -139,6 +139,10 @@ function notice(state: LoginState, lockedUntilMs: number | undefined, now: numbe
   if (state === 'csrf') {
     return '<p class="notice error">请求来源校验未通过，请从本页重新登录。</p>'
   }
+  if (state === 'link-inactive') {
+    return '<p class="notice error">这条免密链接无效，或当前「仅密码」模式不使用免密链接。<br>'
+      + '请输入访问密码；若希望链接可用，请在运行本程序的电脑上把验证模式改为「令牌 + 密码」。</p>'
+  }
   if (state === 'pending-approval') {
     return '<p class="notice">⏳ <strong>这台设备正在等待管理员批准。</strong><br>'
       + '请在运行本程序的电脑上打开设置 → 局域网访问 → 已授权设备，点「批准」后刷新本页即可进入。</p>'
@@ -169,6 +173,7 @@ export function renderLoginPage(options: LoginPageOptions): string {
   const now = options.now ?? Date.now()
   const blocked = options.state === 'locked' || options.state === 'no-password'
     || options.state === 'device-removed' || options.state === 'pending-approval'
+    || options.state === 'link-inactive'
   const next = options.next !== undefined && options.next.startsWith('/') ? options.next : '/'
   const modeHint = options.mode === 'password'
     ? '本设备需要输入访问密码。'

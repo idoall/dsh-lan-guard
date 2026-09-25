@@ -314,10 +314,14 @@ export class VisitorGate {
   ): Promise<GateDecision> {
     if (this.#auth.mode === 'password') {
       // Password-only mode ignores the parameter; the request still has to pass
-      // the ordinary verdict (and is forwarded unchanged when it does).
+      // the ordinary verdict (and is forwarded unchanged when it does). When it
+      // does not, SAY that the link is inert here — a visitor who was handed a
+      // link deserves better than a bare password prompt (user report
+      // 2026-09-25: "通过局域网分享的链接打开页面，显示为空白").
       const verdict = await this.#auth.verifyRequest(req)
       if (verdict.ok) return 'allow'
-      this.#sendUnauthorized(req, res, verdict)
+      this.#logger.warn('passwordless link ignored: mode=password ip=%s', clientIp(req))
+      this.#sendLoginPage(req, res, 'link-inactive', 401)
       return 'handled'
     }
     // Two kinds of link reach here: the master passwordless token, and a
@@ -329,7 +333,7 @@ export class VisitorGate {
       this.#logger.warn('passwordless link rejected ip=%s', clientIp(req))
       const verdict = await this.#auth.verifyRequest(req)
       if (verdict.ok) return 'allow'
-      this.#sendUnauthorized(req, res, verdict)
+      this.#sendLoginPage(req, res, 'link-inactive', 401)
       return 'handled'
     }
     const session = await this.#auth.issueSession()
