@@ -58,6 +58,15 @@ const TABS = [
 type TabId = (typeof TABS)[number]['id']
 
 /** The snapshot the host returns. */
+/** What `/update` returns (SPEC F8). */
+interface UpdateStatus {
+  current: string
+  latest: string | null
+  hasUpdate: boolean
+  checkedAtMs: number | null
+  error: string | null
+}
+
 interface ConfigSnapshot {
   ok: boolean
   preferences: {
@@ -240,6 +249,18 @@ const CSS = `
   color:var(--dsw-alias-label-secondary,#6b7280)}
 .lg-lock .lg-input{width:100%;text-align:left}
 .lg-lock .lg-btn{margin-top:4px}
+.lg-update{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 12px}
+.lg-chip{padding:3px 10px;border-radius:999px;background:var(--dsw-alias-state-success-tertiary,#ecfdf5);
+  color:var(--dsw-alias-state-success-primary,#059669);font:var(--dsw-font-xxs-12,12px/18px sans-serif)}
+.lg-chip.warn{background:var(--dsw-alias-state-business-tertiary,#eff6ff);
+  color:var(--dsw-static-deepseek-500,#4176e6)}
+.lg-link{color:var(--dsw-alias-label-secondary,#6b7280);text-decoration:none;
+  font:var(--dsw-font-xxs-12,12px/18px sans-serif)}
+.lg-link:hover{color:var(--dsw-alias-label-primary,#1f2329)}
+.lg-update-panel{margin:0 0 12px;padding:12px;border-radius:10px;
+  background:var(--dsw-alias-layer-2,#f1f2f4);border:1px solid var(--dsw-alias-border-l2,#e5e6eb)}
+.lg-update-title{font:var(--dsw-font-s-strong-14,500 14px/22px sans-serif);
+  color:var(--dsw-alias-label-primary,#1f2329);margin-bottom:8px}
 .lg-device{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:12px;
   padding:10px 12px;border-radius:10px;background:var(--dsw-alias-bg-base,#f1f2f4);
   border:1px solid var(--dsw-alias-border-l2,#e5e6eb)}
@@ -346,6 +367,8 @@ function SettingsSection(): ReactElement {
   const [showRecovery, setShowRecovery] = useState(false)
   const [portDraft, setPortDraft] = useState('')
   const [portCheck, setPortCheck] = useState<string | null>(null)
+  const [update, setUpdate] = useState<UpdateStatus | null>(null)
+  const [updateBusy, setUpdateBusy] = useState(false)
 
   // A transient confirmation: a permanent bar costs a whole row of the page
   // for information that is stale a second later (user feedback 2026-09-24).
@@ -402,6 +425,26 @@ function SettingsSection(): ReactElement {
       setBusy(false)
     }
   }, [flash])
+
+  /** Ask the host what npm has (SPEC F8). Read-only; the host installs nothing. */
+  const loadUpdate = useCallback(async (force: boolean): Promise<void> => {
+    setUpdateBusy(true)
+    try {
+      const response = await fetch(`/plugins/dsh-lan-guard/update${force ? '?force=1' : ''}`, {
+        credentials: 'same-origin',
+        headers: { accept: 'application/json' },
+      })
+      setUpdate(await response.json() as UpdateStatus)
+    } catch {
+      setUpdate({ current: '?', latest: null, hasUpdate: false, checkedAtMs: null, error: 'unreachable' })
+    } finally {
+      setUpdateBusy(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadUpdate(false)
+  }, [loadUpdate])
 
   /** Ask the host whether a candidate port is free (loopback-only probe). */
   const checkPort = useCallback(async (candidate: string): Promise<void> => {
@@ -853,6 +896,63 @@ function SettingsSection(): ReactElement {
       '当前为远程访问（只读）：请在运行本程序的电脑上打开本控制台修改——127.0.0.1 享有免锁特权。')
     : null
 
+  // Update detection chip + panel (SPEC F8). Read-only: the host never installs
+  // anything; it reports and offers a copyable command.
+  const repoUrl = 'https://github.com/idoall/dsh-lan-guard'
+  const updateChip = createElement('div', { className: 'lg-update', key: 'update' }, [
+    createElement('span', {
+      key: 'v',
+      className: update !== null && update.hasUpdate ? 'lg-chip warn' : 'lg-chip',
+    }, update === null
+      ? '检查更新…'
+      : update.error !== null
+        ? `v${update.current} · 检查失败`
+        : update.hasUpdate
+          ? `v${update.current} ➔ v${String(update.latest)}`
+          : `v${update.current} ✓ 最新`),
+    createElement('button', {
+      key: 'b',
+      type: 'button',
+      className: 'lg-btn secondary lg-btn-small',
+      disabled: updateBusy,
+      onClick: () => void loadUpdate(true),
+    }, updateBusy ? '检查中…' : '检查更新'),
+    createElement('a', { key: 'g', className: 'lg-link', href: repoUrl, target: '_blank', rel: 'noreferrer' }, 'GitHub'),
+    createElement('a', {
+      key: 'c',
+      className: 'lg-link',
+      href: `${repoUrl}/blob/main/CHANGELOG.md`,
+      target: '_blank',
+      rel: 'noreferrer',
+    }, '更新日志'),
+    createElement('a', {
+      key: 'i',
+      className: 'lg-link',
+      href: `${repoUrl}/issues`,
+      target: '_blank',
+      rel: 'noreferrer',
+    }, '反馈 Issue'),
+  ])
+
+  const updatePanel = update === null || !update.hasUpdate
+    ? null
+    : createElement('div', { className: 'lg-update-panel', key: 'updatepanel' }, [
+      createElement('div', { key: 't', className: 'lg-update-title' },
+        `发现新版本 v${String(update.latest)}（当前 v${update.current}）`),
+      createElement('div', { key: 'c', className: 'lg-mono' },
+        `dsh plugin --profile web add dsh-lan-guard@${String(update.latest)}`),
+      createElement('div', { className: 'lg-row', key: 'r' }, [
+        createElement('button', {
+          key: 'cp',
+          type: 'button',
+          className: 'lg-btn secondary',
+          onClick: () => copy(`dsh plugin --profile web add dsh-lan-guard@${String(update.latest)}`, 'update'),
+        }, copied === 'update' ? '已复制' : '复制命令'),
+      ]),
+      createElement('p', { key: 'h', className: 'lg-hint' },
+        '本插件不会自动安装，也不会重启 dsh：执行上面的命令后，需要你手动重启一次 dsh 才生效。'),
+    ])
+
   const tabBar = createElement('div', { className: 'lg-tabs', role: 'tablist', key: 'tabs' },
     TABS.map(entry => createElement('button', {
       key: entry.id,
@@ -869,6 +969,8 @@ function SettingsSection(): ReactElement {
     notice === null ? null : createElement('div', { className: 'lg-bar info', key: 'ok' }, notice),
     unlockBanner,
     readOnlyBanner,
+    updateChip,
+    updatePanel,
     tabBar,
     tab === 'access'
       ? accessTab

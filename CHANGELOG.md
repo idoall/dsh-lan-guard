@@ -1,5 +1,17 @@
 # Changelog
 
+## [Unreleased]
+
+### 新增 — 升级检测（SPEC F8，方案 A）
+
+- **只读检测**：宿主查询 `https://registry.npmjs.org/dsh-lan-guard/latest`，与运行版本比较；成功/失败都缓存 **6 小时**，「检查更新」按钮可强制刷新（`?force=1`）。
+- **新端点**：`GET /plugins/dsh-lan-guard/update[?force=1]`（管理面、只读、遵守原生栅栏）。
+- **版本比较自实现**：支持 `x.y.z` 与预发布后缀（遵循 semver 优先级），**不引入 `semver` 依赖**。
+- **失败即报告**：离线/注册表不可用 → `error: 'registry_unavailable'`，只提示、不抛错，不影响门禁与代理。
+- **设置页 UI**：分区内芯片（绿「vX ✓ 最新」/ 蓝「vX ➔ vY」/ 灰「检查失败」）+「检查更新」+ 静态链接（GitHub / 更新日志 / 反馈 Issue）；有新版时展开面板给出**可复制的升级命令**并提示「需你手动重启 dsh 才生效」。
+- **明确不做**：不自动安装、不自动重启、不接 GitHub API（更新亮点改为指向仓库 CHANGELOG 的静态链接）——宿主只报告，操作权留在人手里。
+- 测试：新增 `tests/update-check.test.ts`（9 项：版本解析/比较/预发布优先级、缓存与 force、注册表失败与网络异常均不抛错）；`pnpm test` **219 项**全绿。
+
 ## [0.1.1] — 2026-09-25
 
 ### 文档

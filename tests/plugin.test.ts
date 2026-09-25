@@ -155,6 +155,7 @@ describe('apply', () => {
       '/plugins/dsh-lan-guard/config',
       '/plugins/dsh-lan-guard/auth-status',
       '/plugins/dsh-lan-guard/devices',
+      '/plugins/dsh-lan-guard/update',
       '/plugins/dsh-lan-guard/port-check',
     ])
     expect(disposers).toHaveLength(1)

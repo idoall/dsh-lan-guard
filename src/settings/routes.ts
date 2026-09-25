@@ -31,6 +31,7 @@ import { buildClearedCookie, isLoopbackAddress, passesCsrfCheck, ADMIN_COOKIE } 
 import { VISITOR_HEADER } from '../headers.ts'
 import type { AccessInfo } from '../qrcode.ts'
 import type { DeviceRecord } from '../store/secrets.ts'
+import type { UpdateStatus } from '../update-check.ts'
 import {
   PreferenceError,
   sanitizePreferencePatch,
@@ -158,6 +159,8 @@ export interface ManagementRoutesOptions {
   listener: { port: () => number; portFallback: () => boolean }
   /** Paired-device registry (P4-g). */
   devices: DeviceRegistryLike
+  /** Update detection (F8): read-only, cached inside the checker. */
+  updates: { check(options?: { force?: boolean }): Promise<UpdateStatus> }
   /**
    * Build the current access URL set and QR codes. Rebuilt per request, which
    * is what makes a NIC/port/TLS/token change refresh the QR (docs/SPEC.md F7).
@@ -563,6 +566,20 @@ export function registerManagementRoutes(options: ManagementRoutesOptions): () =
     kind: 'exact',
     path: `${MANAGEMENT_BASE}/devices`,
     handler: handleDevices,
+  }))
+  /**
+   * Update detection (SPEC F8). Read-only: it reports what npm has and the
+   * settings page offers a copyable command — the host never installs anything.
+   */
+  disposers.push(options.webServer.register({
+    kind: 'exact',
+    path: `${MANAGEMENT_BASE}/update`,
+    handler: async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
+      if (refusedByFence(req, res)) return
+      const url = new URL(req.url ?? '/', 'http://dsh-lan-guard.invalid')
+      const status = await options.updates.check({ force: url.searchParams.get('force') === '1' })
+      sendJson(res, 200, { ok: true, ...status })
+    },
   }))
   disposers.push(options.webServer.register({
     kind: 'exact',

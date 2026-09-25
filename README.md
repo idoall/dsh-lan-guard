@@ -99,6 +99,16 @@ auth:
 
 Every key above can also be changed from the settings page (the non-sensitive ones are declared as volatile config fields).
 
+## Updates
+
+The settings page shows the running version next to the newest one on npm, with a **copyable** upgrade command:
+
+```sh
+dsh plugin --profile web add dsh-lan-guard@latest
+```
+
+The plugin never installs anything by itself and never restarts DSH — run the command yourself and restart DSH once. The check only asks the public npm registry, is cached for six hours, and a failure is reported in the UI instead of breaking the gate.
+
 ## Troubleshooting
 
 **The phone shows a certificate warning.** The CA is self-signed: install/trust `DSH LAN Guard CA` once per device. Compare the fingerprint shown in **连接与证书** before trusting it.

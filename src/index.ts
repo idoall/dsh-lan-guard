@@ -31,6 +31,7 @@ import {
 import type { LanGuardLogger } from './log.ts'
 import { noopLogger } from './log.ts'
 import { mdnsAdvertisement, startMdns } from './mdns.ts'
+import { UpdateChecker } from './update-check.ts'
 import { listNetworkAddresses, selectAddress } from './network.ts'
 import { startProxy, type RunningProxy } from './proxy.ts'
 import { buildAccessInfo, type AccessInfo } from './qrcode.ts'
@@ -66,6 +67,8 @@ export interface ManagementDeps {
   listener: { port: () => number; portFallback: () => boolean }
   /** Paired devices (P4-g). */
   devices: DeviceRegistry
+  /** Update detection (F8). */
+  updates: UpdateChecker
 }
 
 /** The host capabilities this plugin needs, narrowed so it is testable without a real Context. */
@@ -88,6 +91,8 @@ export interface LanGuardRuntime {
   readonly auth: AuthManager
   /** Paired devices (P4-g), exposed for tests and diagnostics. */
   readonly devices: DeviceRegistry
+  /** Update detection (SPEC F8). */
+  readonly updates: UpdateChecker
   /** Stop the listener, the gate and the management routes. */
   close(): Promise<void>
 }
@@ -99,6 +104,18 @@ export interface LanGuardRuntime {
  * @param rawConfig - the Loader config for this entry.
  * @returns the running runtime, or `undefined` when the plugin is switched off.
  */
+/** Read the plugin's own version (used by the update check). */
+async function readPackageVersion(): Promise<string> {
+  try {
+    const raw = await readFile(new URL('../package.json', import.meta.url), 'utf8')
+    const parsed = JSON.parse(raw) as { version?: unknown }
+    return typeof parsed.version === 'string' ? parsed.version : '0.0.0'
+  } catch {
+    // A missing package.json only means the version chip cannot compare.
+    return '0.0.0'
+  }
+}
+
 export async function startLanGuard(host: LanGuardHost, rawConfig: unknown): Promise<LanGuardRuntime | undefined> {
   const logger = host.logger ?? noopLogger
   const config = parseConfig(rawConfig)
@@ -141,6 +158,8 @@ export async function startLanGuard(host: LanGuardHost, rawConfig: unknown): Pro
 
   const devices = new DeviceRegistry({ store, logger })
   await devices.init()
+  // Update detection (SPEC F8): read-only, cached, never installs anything.
+  const updates = new UpdateChecker({ currentVersion: await readPackageVersion(), logger })
   const gate = new VisitorGate({
     auth,
     devices,
@@ -195,6 +214,7 @@ export async function startLanGuard(host: LanGuardHost, rawConfig: unknown): Pro
     access,
     listener: { port: () => proxy.port, portFallback: () => proxy.portFallback },
     devices,
+    updates,
   })
 
   if (proxy.portFallback) {
@@ -214,6 +234,7 @@ export async function startLanGuard(host: LanGuardHost, rawConfig: unknown): Pro
     proxy,
     auth,
     devices,
+    updates,
     async close(): Promise<void> {
       mdns?.stop()
       disposeManagement?.()
@@ -310,6 +331,7 @@ export async function apply(ctx: Context, rawConfig: unknown): Promise<void> {
       access: deps.access,
       listener: deps.listener,
       devices: deps.devices,
+      updates: deps.updates,
       logger: deps.logger,
     }),
   }, rawConfig)

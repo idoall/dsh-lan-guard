@@ -110,6 +110,11 @@ async function harness(options: {
     config,
     settings,
     listener: { port: () => config.listenPort, portFallback: () => false },
+    updates: {
+      check: async () => ({
+        current: '0.1.1', latest: '0.2.0', hasUpdate: true, checkedAtMs: 1, error: null,
+      }),
+    },
     devices,
     access: async (secretToken) => ({
       port: config.listenPort,

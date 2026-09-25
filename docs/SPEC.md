@@ -179,6 +179,20 @@
 - 支持在配置里指定网卡 / IP；
 - 呈现方式：**通过 F6 的设置页**（不另做独立面板）。
 
+### F8 升级检测（2026-09-24 用户要求，方案 A）
+
+设置页展示「当前版本 → npm 上最新版本」，并给出**可复制的手动升级命令**。**宿主绝不执行安装、绝不重启 dsh。**
+
+| 项 | 规格 |
+| --- | --- |
+| 数据源 | **只查一个外部端点**：`https://registry.npmjs.org/dsh-lan-guard/latest`（公开、无需鉴权、5s 超时） |
+| 缓存 | 成功与失败结果都缓存 **6 小时**；「检查更新」按钮用 `?force=1` 绕过缓存 |
+| 端点 | `GET /plugins/dsh-lan-guard/update[?force=1]` → `{ ok, current, latest, hasUpdate, checkedAtMs, error }`（管理面、只读、遵守原生栅栏） |
+| 版本比较 | **自己实现**（`x.y.z` + 预发布后缀，遵循 semver 优先级）；**不引入 `semver` 依赖** |
+| 失败处理 | 离线 → `error: 'registry_unavailable'`，**只报告、绝不抛错**，不影响门禁与代理 |
+| UI | 分区内一枚芯片（绿「vX ✓ 最新」/ 蓝「vX ➔ vY」/ 灰「检查失败」）+「检查更新」+ 静态链接（GitHub / 更新日志 / 反馈 Issue）；有新版时展开面板：版本号、**可复制命令**、「需手动重启 dsh」提示 |
+| 不做 | 不自动安装、不自动重启、不接 GitHub API |
+
 ### F5b mDNS 发现（P4-d，默认关闭）
 
 - `mdns.enabled`（默认 **false**）：开启后广播 `_dsh-lan-guard._tcp`，TXT 记录带 `scheme` / `host` / `url`；
