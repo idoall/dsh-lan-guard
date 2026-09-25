@@ -1,5 +1,5 @@
 /**
- * dsh-lan-guard — the visitor-facing request gate (docs/SPEC.md F3).
+ * dsh-lan-guard — the visitor-facing request gate.
  *
  * This is the only code path between a LAN client and DSH's own UI, so it
  * owns four decisions and nothing else:
@@ -7,9 +7,9 @@
  * 1. gate-owned paths (`/__dsh_lan_guard__/*`) never reach the upstream;
  * 2. a passwordless link (`?auth=<secretToken>`) is exchanged for a session
  *    cookie and answered with a `302` to the CLEAN url — the same shape as
- *    DSH's own token exchange (docs/RESEARCH.md §3.3). The parameter name is
+ *    DSH's own token exchange. The parameter name is
  *    `auth`, never `token`: `token` is DSH's launch token and must be
- *    forwarded upstream untouched (docs/SPEC.md F7);
+ *    forwarded upstream untouched;
  * 3. an unauthorized HTML navigation gets the login page, while `/api/*` and
  *    non-HTML requests get `401` JSON — never a login page a fetch would
  *    silently parse;
@@ -198,7 +198,7 @@ export class VisitorGate {
    * Decide whether an upgrade may proceed.
    *
    * The caller must have attached its socket error handler BEFORE awaiting
-   * this (docs/RESEARCH.md §5.7 ①).
+   * this.
    *
    * @param req - the upgrade request.
    * @returns `undefined` when the upgrade may proceed, else the status to send.
@@ -333,7 +333,7 @@ export class VisitorGate {
       const verdict = await this.#auth.verifyRequest(req)
       // An authenticated session still has to satisfy the pairing requirement:
       // returning 'allow' here let the app HTML through while its bundle
-      // requests (no ?auth=, no device cookie) were answered with 428, so the
+      // requests (no?auth=, no device cookie) were answered with 428, so the
       // visitor saw a BLANK page (user report 2026-09-25).
       if (verdict.ok) return this.#afterVerdict(req, res, verdict)
       this.#logger.warn('passwordless link ignored: mode=password ip=%s', clientIp(req))

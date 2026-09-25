@@ -1,5 +1,5 @@
 /**
- * Access URL + QR tests (docs/SPEC.md F7).
+ * Access URL + QR tests.
  *
  * The QR is a credential carrier when it holds the passwordless link, so the
  * rules tested here are: it is built from the CURRENT addresses, and the token

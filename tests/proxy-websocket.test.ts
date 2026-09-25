@@ -1,5 +1,5 @@
 /**
- * WebSocket upgrade tests (docs/SPEC.md F1/F3, docs/RESEARCH.md §5.3, §5.7 ①).
+ * WebSocket upgrade tests.
  *
  * The upgrade path is the one the shipped UI depends on for its whole session
  * (`/api/remote.mux`), so it is tested over a real TCP socket rather than a

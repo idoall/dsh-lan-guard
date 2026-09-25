@@ -10,7 +10,7 @@
  * - P3 (next): the LAN listener, self-signed TLS and the QR code.
  *
  * The plugin never changes DSH's own binding or any DSH-side configuration; it
- * opens a second listener of its own (docs/RESEARCH.md §2.1, §4).
+ * opens a second listener of its own.
  */
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-connection'
@@ -25,6 +25,7 @@ import {
   isLoopbackHost,
   liveSwitches,
   parseConfig,
+  resolveDataDir,
   type LanGuardConfigShape,
   type LiveSwitches,
 } from './config.ts'
@@ -77,6 +78,12 @@ export interface LanGuardHost {
   authenticatedUrl: (baseUrl: string) => string
   /** DSH's own web server port, used to refuse a self-conflicting listener. */
   webServerPort?: number | undefined
+  /**
+   * The active profile directory, when the host can name it (`profileContext`).
+   * Supplying it makes `dataDir` optional: the plugin derives
+   * `<profileDir>/data/dsh-lan-guard` instead of demanding hand-written config.
+   */
+  profileDir?: string | undefined
   /** Logger; credentials are never passed to it. */
   logger?: LanGuardLogger
   /** Register the management surface; omitted when no DSH seams are available (unit tests). */
@@ -118,7 +125,9 @@ async function readPackageVersion(): Promise<string> {
 
 export async function startLanGuard(host: LanGuardHost, rawConfig: unknown): Promise<LanGuardRuntime | undefined> {
   const logger = host.logger ?? noopLogger
-  const config = parseConfig(rawConfig)
+  // Resolved here only for the log line; `parseConfig` applies the same precedence.
+  const dataDir = resolveDataDir(rawConfig, host.profileDir)
+  const config = parseConfig(rawConfig, host.profileDir)
   const switches = liveSwitches(rawConfig, config)
 
   if (!switches.enabled()) {
@@ -147,12 +156,15 @@ export async function startLanGuard(host: LanGuardHost, rawConfig: unknown): Pro
   }
 
   const store = new SecretsStore(config.dataDir ?? '', logger)
+  // Say where credentials land and why: an install with no config at all now
+  // works, so the operator must be able to find the directory without guessing.
+  logger.info('private state dir=%s source=%s', config.dataDir ?? '', dataDir?.source ?? 'config')
   const auth = new AuthManager({ store, auth: config.auth, switches, logger })
   await auth.init()
 
   if (!auth.hasPassword) {
     // Honest, loud, and safe: with no password the gate refuses every visitor
-    // rather than pretending to be a gate (docs/SPEC.md F3).
+    // rather than pretending to be a gate.
     logger.warn('no access password configured; the gate will refuse every device until one is set')
   }
 
@@ -245,15 +257,6 @@ export async function startLanGuard(host: LanGuardHost, rawConfig: unknown): Pro
   }
 }
 
-/**
- * Resolve the host `settings` service without requiring it.
- *
- * `ctx.settings` would throw for a service this plugin does not declare in
- * `inject`, and declaring it would stop the plugin from loading in profiles
- * that ship no settings service. `ctx.get(name)` is the optional lookup: the
- * endpoint degrades to read-only instead of taking the plugin down, and it
- * never pretends a write succeeded.
- */
 /** The TLS material in use, plus the CA fingerprint the settings page shows. */
 interface TlsMaterial {
   cert: string
@@ -265,8 +268,7 @@ interface TlsMaterial {
  * Produce the listener's TLS material.
  *
  * `self-signed` keeps a long-lived CA and re-signs a leaf for the CURRENT
- * addresses, so a DHCP change never invalidates a phone's trust
- * (docs/RESEARCH.md §5.1).
+ * addresses, so a DHCP change never invalidates a phone's trust.
  */
 async function materializeTls(config: LanGuardConfigShape, logger: LanGuardLogger): Promise<TlsMaterial | undefined> {
   if (config.tls.mode === 'off') {
@@ -299,15 +301,55 @@ async function materializeTls(config: LanGuardConfigShape, logger: LanGuardLogge
   return { cert: leaf.cert, key: leaf.key, caFingerprint: ca.fingerprint }
 }
 
-function optionalSettings(ctx: Context): SettingsWriterLike | undefined {
+/**
+ * Look a host service up without requiring it.
+ *
+ * `ctx.<service>` would throw for a service this plugin does not declare in
+ * `inject`, and declaring one would stop the plugin from loading in hosts that
+ * ship none. `ctx.get(name)` is the optional lookup, so a missing service
+ * degrades one feature instead of taking the whole plugin down.
+ *
+ * @param ctx - the plugin context.
+ * @param name - the host service name.
+ * @returns the service, or `undefined` when it is absent.
+ */
+function optionalService<T>(ctx: Context, name: string): T | undefined {
   const lookup = (ctx as unknown as { get?: (name: string) => unknown }).get
   if (typeof lookup !== 'function') return undefined
   try {
-    const service = lookup.call(ctx, 'settings')
-    return service === undefined || service === null ? undefined : service as SettingsWriterLike
+    const service = lookup.call(ctx, name)
+    return service === undefined || service === null ? undefined : service as T
   } catch {
     return undefined
   }
+}
+
+/**
+ * The host `settings` service, when this profile ships one.
+ *
+ * Without it the management endpoint degrades to read-only instead of taking
+ * the plugin down, and it never pretends a write succeeded.
+ *
+ * @param ctx - the plugin context.
+ * @returns the settings writer, or `undefined`.
+ */
+function optionalSettings(ctx: Context): SettingsWriterLike | undefined {
+  return optionalService<SettingsWriterLike>(ctx, 'settings')
+}
+
+/**
+ * The active profile directory, read from DSH's own `profileContext` service.
+ *
+ * This is the FACT the plugin derives its default `dataDir` from — never its
+ * own module location, which a linked package moves.
+ *
+ * @param ctx - the plugin context.
+ * @returns the directory, or `undefined` when the host cannot name one.
+ */
+function activeProfileDir(ctx: Context): string | undefined {
+  const profile = optionalService<{ dir?: unknown }>(ctx, 'profileContext')
+  const dir = profile?.dir
+  return typeof dir === 'string' && dir.trim() !== '' ? dir : undefined
 }
 
 /**
@@ -321,6 +363,7 @@ export async function apply(ctx: Context, rawConfig: unknown): Promise<void> {
   const runtime = await startLanGuard({
     authenticatedUrl: (baseUrl: string) => ctx.connection.authenticatedUrl(baseUrl),
     webServerPort: ctx.webServer.port,
+    profileDir: activeProfileDir(ctx),
     logger,
     registerManagement: deps => registerManagementRoutes({
       connection: { requestRejection: request => ctx.connection.requestRejection(request) },

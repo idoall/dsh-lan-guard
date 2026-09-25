@@ -1,12 +1,15 @@
 /**
- * Config model tests (docs/SPEC.md §5).
+ * Config model tests.
  *
  * The point of this file is the REJECTION side: every documented constraint
  * that keeps the listener safe must fail loudly rather than silently widen a
  * default. Assertions are never loosened to fit the implementation.
  */
 import { describe, expect, it } from 'vitest'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 import {
+  DATA_DIR_NAME,
   DEFAULT_LISTEN_HOST,
   DEFAULT_LISTEN_PORT,
   DEFAULT_UPSTREAM_ORIGIN,
@@ -15,6 +18,7 @@ import {
   isLoopbackHost,
   isLoopbackOrigin,
   parseConfig,
+  resolveDataDir,
 } from '../src/config.ts'
 
 /** The smallest config that is allowed to start. */
@@ -40,8 +44,16 @@ describe('parseConfig defaults', () => {
     expect(config.tls.mode).toBe('self-signed')
   })
 
-  it('never defaults to a network listener', () => {
-    expect(parseConfig(MINIMAL).listenHost).toBe('127.0.0.1')
+  it('defaults to a LAN-reachable listener WITH the gate and TLS on', () => {
+    // User decision 2026-09-25: the plugin exists
+    // to give LAN access, so a fresh install must be reachable after ONE
+    // restart. The default is therefore 0.0.0.0 — and the two safety nets that
+    // make that acceptable must be on in the same breath.
+    const config = parseConfig(MINIMAL)
+    expect(config.listenHost).toBe('0.0.0.0')
+    expect(config.auth.enabled).toBe(true)
+    expect(config.tls.mode).toBe('self-signed')
+    expect(config.tls.allowInsecureLan).toBe(false)
   })
 
   it('keeps the default port clear of DSH and dsh-mobile', () => {
@@ -49,10 +61,49 @@ describe('parseConfig defaults', () => {
   })
 })
 
+describe('dataDir resolution', () => {
+  const PROFILE = '/tmp/dsh-profile'
+  const DERIVED = join(PROFILE, 'data', DATA_DIR_NAME)
+
+  it('derives <profile>/data/dsh-lan-guard so a fresh install needs no config', () => {
+    expect(parseConfig({}, PROFILE).dataDir).toBe(DERIVED)
+    expect(resolveDataDir({}, PROFILE)).toEqual({ dir: DERIVED, source: 'profile' })
+  })
+
+  it('lets an explicit dataDir win over the derived default', () => {
+    expect(parseConfig({ dataDir: '/tmp/explicit' }, PROFILE).dataDir).toBe('/tmp/explicit')
+    expect(resolveDataDir({ dataDir: '/tmp/explicit' }, PROFILE)).toEqual({
+      dir: '/tmp/explicit',
+      source: 'config',
+    })
+  })
+
+  it('treats a blank or absent dataDir as "not configured"', () => {
+    expect(parseConfig({ dataDir: '   ' }, PROFILE).dataDir).toBe(DERIVED)
+    expect(parseConfig({ dataDir: null }, PROFILE).dataDir).toBe(DERIVED)
+    expect(parseConfig({ dataDir: undefined }, PROFILE).dataDir).toBe(DERIVED)
+  })
+
+  it('expands a leading ~ in an explicit dataDir', () => {
+    // README documents `~/.dsh/...`, so the plugin must honour it rather than
+    // creating a literal "~" directory under the process CWD.
+    expect(parseConfig({ dataDir: '~/lg' }).dataDir).toBe(join(homedir(), 'lg'))
+    expect(parseConfig({ dataDir: '~' }).dataDir).toBe(homedir())
+  })
+
+  it('reports no resolution instead of inventing a shared directory', () => {
+    expect(resolveDataDir({})).toBeNull()
+    expect(resolveDataDir({}, '   ')).toBeNull()
+  })
+})
+
 describe('parseConfig rejection', () => {
-  it('refuses to start without dataDir', () => {
+  it('refuses to start when neither an explicit nor a derived dataDir exists', () => {
+    // A host that names no profile directory is the only case left: the plugin
+    // must not invent one.
     expect(() => parseConfig({})).toThrow(LanGuardConfigError)
     expect(() => parseConfig({ dataDir: '   ' })).toThrow(/dataDir/)
+    expect(() => parseConfig({}, '   ')).toThrow(/dataDir/)
   })
 
   it('rejects a hostname listenHost', () => {
@@ -183,6 +234,42 @@ describe('networkInterface switch (P4-a)', () => {
     expect(() => sanitizePreferencePatch({ networkInterface: 'a b; rm -rf /' })).toThrow(/interface name/)
     expect(() => sanitizePreferencePatch({ networkInterface: 7 })).toThrow(/string/)
     expect(toSettingsPatch({ networkInterface: 'en0' })).toEqual({ networkInterface: 'en0' })
+  })
+})
+
+describe('listenHost switch (2026-09-25)', () => {
+  it('is volatile and survives the resolved-config handoff', async () => {
+    const { Config, liveSwitches } = await import('../src/config.ts')
+    const resolved = Config({ dataDir: '/tmp/x', listenHost: '127.0.0.1' } as never) as unknown
+    expect((resolved as { listenHost: unknown }).listenHost).toBeTypeOf('object')
+    const parsed = parseConfig(resolved)
+    expect(parsed.listenHost).toBe('127.0.0.1')
+    expect(liveSwitches(resolved, parsed).listenHost()).toBe('127.0.0.1')
+  })
+
+  it('reads the live reference rather than freezing the startup value', async () => {
+    const { Config, liveSwitches } = await import('../src/config.ts')
+    const resolved = Config({ dataDir: '/tmp/x' } as never) as unknown
+    const parsed = parseConfig(resolved)
+    const switches = liveSwitches(resolved, parsed)
+    expect(switches.listenHost()).toBe('0.0.0.0')
+    // The accessor reads the volatile reference, so a settings-service write is
+    // visible without a remount (the writer itself is host-owned).
+    const reference = (resolved as { listenHost: { get(): string } }).listenHost
+    expect(reference.get()).toBe('0.0.0.0')
+    expect(switches.listenHost()).toBe(reference.get())
+  })
+
+  it('accepts exactly the two addresses the settings page offers', async () => {
+    const { sanitizePreferencePatch, toSettingsPatch } = await import('../src/store/preferences.ts')
+    expect(sanitizePreferencePatch({ listenHost: '127.0.0.1' })).toEqual({ listenHost: '127.0.0.1' })
+    expect(sanitizePreferencePatch({ listenHost: '0.0.0.0' })).toEqual({ listenHost: '0.0.0.0' })
+    expect(toSettingsPatch({ listenHost: '127.0.0.1' })).toEqual({ listenHost: '127.0.0.1' })
+    // A NIC literal stays a profile-patch-only, advanced setting: the endpoint
+    // must not become "write any address string".
+    expect(() => sanitizePreferencePatch({ listenHost: '10.0.0.20' })).toThrow(/listenHost/)
+    expect(() => sanitizePreferencePatch({ listenHost: '' })).toThrow(/listenHost/)
+    expect(() => sanitizePreferencePatch({ listenHost: true })).toThrow(/listenHost/)
   })
 })
 

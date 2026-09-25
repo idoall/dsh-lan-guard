@@ -2,13 +2,13 @@
  * dsh-lan-guard — upstream loopback authentication (SPEC §3 F2, route A).
  *
  * The browser holds a cookie for the PROXY origin; DSH's fence authenticates a
- * cookie bound to the authority `127.0.0.1:<dshPort>` (docs/RESEARCH.md §3.4).
+ * cookie bound to the authority `127.0.0.1:<dshPort>`.
  * So the proxy cannot reuse the visitor's cookie and must hold one of its own.
  *
  * Route A (the decided route) uses only the public seam
  * `ctx.connection.authenticatedUrl(origin)`:
  *
- *   GET /?token=<launch token>  →  303 + Set-Cookie + Location: ./
+ *   GET /?token=<launch token>  →  303 + Set-Cookie + Location:./
  *
  * and caches the resulting cookie. The launch token is process-scoped, so a
  * DSH restart invalidates it — this class detects that by re-reading the
@@ -19,7 +19,7 @@
  * fail silently with a 401 after any format change.
  *
  * The launch token and the session cookie are credentials: they are held in
- * memory only, never logged, never written to disk (docs/GUARDRAILS.md §4).
+ * memory only, never logged, never written to disk.
  */
 import { request as httpRequest, type IncomingHttpHeaders } from 'node:http'
 import type { LanGuardLogger } from './log.ts'
@@ -162,7 +162,7 @@ export class UpstreamAuth {
     if (token === null || token === '') {
       throw new UpstreamAuthError(
         'dsh-lan-guard: ctx.connection.authenticatedUrl() returned no launch token; '
-        + 'the upstream authentication seam changed (see docs/RESEARCH.md §3.3)',
+        + 'the upstream authentication seam changed',
       )
     }
     return token

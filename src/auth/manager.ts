@@ -1,5 +1,5 @@
 /**
- * dsh-lan-guard — the visitor gate (docs/SPEC.md F3).
+ * dsh-lan-guard — the visitor gate.
  *
  * The gate is the ONLY thing standing between the LAN and a remote-code-
  * execution UI, so its order of operations is part of the spec:
@@ -12,8 +12,7 @@
  * 4. an unexpired session cookie passes;
  * 5. otherwise the request is unauthorized.
  *
- * Field semantics and parameters follow dsh-bridge
- * (docs/RESEARCH.md §5.5): PBKDF2-SHA256 with 600000 iterations and an
+ * Field semantics and parameters follow dsh-bridge: PBKDF2-SHA256 with 600000 iterations and an
  * algorithm-prefixed hash, `timingSafeEqual` for every comparison, dual
  * passwords, a `dsh_`-prefixed passwordless-link token, persistent visitor
  * sessions and memory-only admin sessions, per-IP failure lockout.
@@ -366,8 +365,7 @@ export class AuthManager {
    *
    * Deliberately independent of any visitor session: the researched
    * dsh-bridge deadlock was an unlock that required a valid visitor session,
-   * so an expired session made the management console permanently unlockable
-   * (docs/RESEARCH.md §5.5).
+   * so an expired session made the management console permanently unlockable.
    *
    * @param password - the submitted admin password (falls back to the access password when unset).
    * @returns the admin cookie, or `undefined` when the password is wrong.
@@ -487,8 +485,7 @@ export function clientIp(req: IncomingMessage): string {
 }
 
 /**
- * Whether a state-changing request passes the CSRF check
- * (docs/SPEC.md F3/§6.5).
+ * Whether a state-changing request passes the CSRF check.
  *
  * A malicious page on the LAN can reach the proxy port, so a same-origin
  * check is required on every state change: `Sec-Fetch-Site: cross-site` is

@@ -4,8 +4,7 @@
  * DSH hands a Cordis logger to `ctx.logger(...)`, which already satisfies this
  * shape. Declaring the narrow interface here keeps the rest of the plugin
  * testable with a stub, and keeps every call site honest about the one rule
- * that matters: NO credential is ever passed to a log call
- * (docs/GUARDRAILS.md §4).
+ * that matters: NO credential is ever passed to a log call.
  */
 export interface LanGuardLogger {
   /** Routine lifecycle and request information. */

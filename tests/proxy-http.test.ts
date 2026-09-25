@@ -1,9 +1,9 @@
 /**
- * HTTP proxy integration tests (docs/SPEC.md F1/F2, §7).
+ * HTTP proxy integration tests.
  *
  * Everything runs against a fake upstream on `127.0.0.1:0` and a proxy on
  * `127.0.0.1:0`: the suite never binds a network interface and never needs a
- * real DSH process (docs/SPEC.md §7 "约束").
+ * real DSH process.
  */
 import { afterEach, describe, expect, it } from 'vitest'
 import { noopLogger } from '../src/log.ts'

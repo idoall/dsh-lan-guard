@@ -1,5 +1,5 @@
 /**
- * Gate unit tests (docs/SPEC.md F3).
+ * Gate unit tests.
  *
  * The password hashing contract, the dual-password/admin-session split, the
  * per-IP lockout and the CSRF check are pinned here; the request-level flow is

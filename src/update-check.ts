@@ -8,7 +8,7 @@
  * to restart dsh, which this plugin never does).
  *
  * The version comparison is implemented here on purpose: adding `semver` would
- * be a new runtime dependency (docs/AGENTS.md §4 grey list) for ~30 lines of
+ * be a new runtime dependency for ~30 lines of
  * arithmetic.
  */
 import type { LanGuardLogger } from './log.ts'

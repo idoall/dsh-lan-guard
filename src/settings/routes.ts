@@ -1,10 +1,10 @@
 /**
- * dsh-lan-guard — the management surface (docs/SPEC.md F6).
+ * dsh-lan-guard — the management surface.
  *
  * These routes live on DSH's OWN web server, not on the proxy port, and they
  * are protected by DSH's native fence via `connection.requestRejection()` —
  * the researched seam that reuses the Host/Origin check plus DSH's browser
- * cookie authentication (docs/RESEARCH.md §5.6). The two auth surfaces are
+ * cookie authentication. The two auth surfaces are
  * deliberately distinct: being able to open the settings page is NOT the same
  * as being able to pass the visitor gate, and vice versa.
  *
@@ -18,8 +18,7 @@
  *
  * The admin unlock is exempt from every admin requirement (it IS the unlock),
  * which is the researched deadlock fix: an unlock that depended on a session
- * would make the console permanently unlockable once that session expired
- * (docs/RESEARCH.md §5.5).
+ * would make the console permanently unlockable once that session expired.
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { createServer as createNetServer } from 'node:net'
@@ -128,7 +127,7 @@ export interface ConfigSnapshot {
     upstreamOrigin: string
   }
   authStatus: AuthStatus
-  /** The access URL set plus QR codes (docs/SPEC.md F7). */
+  /** The access URL set plus QR codes. */
   access: AccessInfo
   /** Paired devices (P4-g); tokens are never included. */
   devices: DeviceView[]
@@ -174,7 +173,7 @@ export interface ManagementRoutesOptions {
   updates: { check(options?: { force?: boolean }): Promise<UpdateStatus> }
   /**
    * Build the current access URL set and QR codes. Rebuilt per request, which
-   * is what makes a NIC/port/TLS/token change refresh the QR (docs/SPEC.md F7).
+   * is what makes a NIC/port/TLS/token change refresh the QR.
    */
   access: (secretToken?: string | null) => Promise<AccessInfo>
   logger?: LanGuardLogger
@@ -292,6 +291,7 @@ export function registerManagementRoutes(options: ManagementRoutesOptions): () =
       preferences: {
         enabled: options.switches.enabled(),
         listenPort: options.switches.listenPort(),
+        listenHost: options.switches.listenHost(),
         networkInterface: options.switches.networkInterface() ?? '',
         mode: options.switches.mode(),
         adminPolicy: options.switches.adminPolicy(),
@@ -357,7 +357,7 @@ export function registerManagementRoutes(options: ManagementRoutesOptions): () =
 
     if (!isStateChanging(req.method)) {
       // The passwordless link is a credential, so it is created lazily and
-      // only ever handed to an admin-unlocked caller (docs/SPEC.md F3/F7).
+      // only ever handed to an admin-unlocked caller.
       if (mayManage(req)) await options.auth.ensureSecretToken()
       sendJson(res, 200, await snapshotOf(req))
       return
@@ -408,6 +408,17 @@ export function registerManagementRoutes(options: ManagementRoutesOptions): () =
           return
         }
         const values = sanitizePreferencePatch(body.preferences)
+        // A non-loopback bind with the gate disabled is rejected at startup. Refusing it HERE keeps the settings
+        // page from writing a config that would fail the next restart — a
+        // broken boot is far worse than a refused save.
+        if (
+          values.listenHost !== undefined
+          && values.listenHost !== '127.0.0.1'
+          && !options.config.auth.enabled
+        ) {
+          sendJson(res, 400, { ok: false, error: 'gate_disabled_requires_loopback' })
+          return
+        }
         await writePreferences(values)
         if (values.mode !== undefined) {
           // A mode change must bite immediately: otherwise a phone that already

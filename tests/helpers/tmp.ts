@@ -2,8 +2,7 @@
  * Test scratch space.
  *
  * Everything is created under `<repo>/.tmp/` (gitignored) on purpose: the
- * suite must not write anywhere outside this repository
- * (docs/GUARDRAILS.md §2), and the plugin's secrets store needs a real
+ * suite must not write anywhere outside this repository, and the plugin's secrets store needs a real
  * directory to exercise mode 600.
  */
 import { mkdir, mkdtemp } from 'node:fs/promises'

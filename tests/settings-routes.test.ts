@@ -1,5 +1,5 @@
 /**
- * Management surface tests (docs/PLAN.md §5 必须验证 · 设置 UI).
+ * Management surface tests.
  *
  * The routes run on a real HTTP server with real `IncomingMessage` /
  * `ServerResponse` objects, so the native-fence handoff, the CSRF rule and the
@@ -214,6 +214,7 @@ describe('snapshot', () => {
     expect(body.preferences).toEqual({
       enabled: true,
       listenPort: 3445,
+      listenHost: '127.0.0.1',
       networkInterface: '',
       mode: 'token_and_password',
       adminPolicy: 'local_only',
@@ -528,6 +529,44 @@ describe('network interface selection (P4-a)', () => {
       headers: { cookie: adminCookie },
     })
     expect(harnessed.updates).toEqual([{ ns: 'dsh-lan-guard', patch: { networkInterface: 'en0' } }])
+  })
+})
+
+describe('listen scope (2026-09-25)', () => {
+  it('writes the bind address through the settings service', async () => {
+    const harnessed = await harness()
+    const unlocked = await post(harnessed.port, { adminUnlock: ADMIN })
+    const adminCookie = cookiePair(unlocked, 'dsh_lan_guard_admin')
+    const response = await post(harnessed.port, { preferences: { listenHost: '0.0.0.0' } }, {
+      headers: { cookie: adminCookie },
+    })
+    expect(response.status).toBe(200)
+    expect(harnessed.updates).toEqual([{ ns: 'dsh-lan-guard', patch: { listenHost: '0.0.0.0' } }])
+  })
+
+  it('refuses a NIC literal from the endpoint', async () => {
+    const harnessed = await harness()
+    const unlocked = await post(harnessed.port, { adminUnlock: ADMIN })
+    const adminCookie = cookiePair(unlocked, 'dsh_lan_guard_admin')
+    const response = await post(harnessed.port, { preferences: { listenHost: '10.0.0.20' } }, {
+      headers: { cookie: adminCookie },
+    })
+    expect(response.status).toBe(400)
+    expect(harnessed.updates).toEqual([])
+  })
+
+  it('refuses a non-loopback bind while the gate is disabled', async () => {
+    // parseConfig rejects that combination at startup, so writing it from the
+    // page would break the next restart. A refused save beats a broken boot.
+    const harnessed = await harness({ auth: { enabled: false } })
+    const unlocked = await post(harnessed.port, { adminUnlock: ADMIN })
+    const adminCookie = cookiePair(unlocked, 'dsh_lan_guard_admin')
+    const response = await post(harnessed.port, { preferences: { listenHost: '0.0.0.0' } }, {
+      headers: { cookie: adminCookie },
+    })
+    expect(response.status).toBe(400)
+    expect(JSON.parse(response.body.toString()).error).toBe('gate_disabled_requires_loopback')
+    expect(harnessed.updates).toEqual([])
   })
 })
 

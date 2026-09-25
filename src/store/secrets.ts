@@ -2,8 +2,7 @@
  * dsh-lan-guard — sensitive state on disk.
  *
  * Everything a user would not want in a shareable text file lives here, under
- * the plugin's private `dataDir`, with file mode 600 (docs/SPEC.md F3
- * "存储位置", docs/GUARDRAILS.md §4):
+ * the plugin's private `dataDir`, with file mode 600:
  *
  * - the access password hash + salt,
  * - the independent admin password hash + salt,
@@ -11,7 +10,7 @@
  * - persistent visitor sessions.
  *
  * Admin sessions are deliberately NOT persisted: they are memory-only and die
- * with the process (docs/SPEC.md F3).
+ * with the process.
  *
  * No value read or written here is ever logged; only names and lengths may be.
  */

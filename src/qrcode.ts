@@ -1,13 +1,13 @@
 /**
- * dsh-lan-guard — the access URL set and its QR codes (docs/SPEC.md F7).
+ * dsh-lan-guard — the access URL set and its QR codes.
  *
  * The QR is generated on the HOST, because only the host knows the real NIC
  * addresses and the passwordless token. It is emitted as an SVG string (the
- * researched dsh-mobile approach, docs/RESEARCH.md §5.8): no base64 bloat, and
+ * researched dsh-mobile approach): no base64 bloat, and
  * the client can let it inherit theme colours.
  *
  * The token-bearing URL is a credential: it is only ever produced for an
- * admin-unlocked caller, and it is never logged (docs/GUARDRAILS.md §4).
+ * admin-unlocked caller, and it is never logged.
  */
 import QRCode from 'qrcode'
 import { accessUrl, listNetworkAddresses, selectAddress, type NetworkAddress } from './network.ts'
@@ -86,8 +86,7 @@ export interface AccessInfoOptions {
  * Build the access information for the settings page.
  *
  * Rebuilt on every request on purpose: a NIC change, a TLS change, a port
- * change or a token rotation therefore refreshes the QR automatically
- * (docs/SPEC.md F7 "刷新时机").
+ * change or a token rotation therefore refreshes the QR automatically.
  *
  * @param options - port, TLS mode and the optional token.
  * @returns the URL set plus QR codes.

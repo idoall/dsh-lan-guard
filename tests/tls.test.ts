@@ -1,5 +1,5 @@
 /**
- * Certificate tests (docs/SPEC.md F4).
+ * Certificate tests.
  *
  * The load-bearing property is CA IDENTITY STABILITY: the CA must survive
  * restarts and address changes, while the leaf is re-signed. Otherwise every

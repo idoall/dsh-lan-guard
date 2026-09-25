@@ -1,5 +1,5 @@
 /**
- * NIC discovery tests (docs/SPEC.md F5).
+ * NIC discovery tests.
  *
  * The classification matters because the WRONG address is worse than none: a
  * Docker or VPN address looks plausible and simply never works on the phone.

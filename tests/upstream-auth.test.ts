@@ -1,9 +1,8 @@
 /**
- * Route A tests: the loopback cookie the proxy injects upstream
- * (docs/SPEC.md F2, docs/RESEARCH.md §3.3/§3.4).
+ * Route A tests: the loopback cookie the proxy injects upstream.
  *
  * The fake upstream reproduces DSH's real exchange shape (303 + Set-Cookie +
- * `Location: ./`) and binds the cookie name to the request authority, so a
+ * `Location:./`) and binds the cookie name to the request authority, so a
  * passing test also proves the exchange request carried the upstream `host`.
  */
 import { afterEach, describe, expect, it } from 'vitest'

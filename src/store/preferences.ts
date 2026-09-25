@@ -3,8 +3,7 @@
  *
  * Non-sensitive switches live in the plugin's own `Config`, and on DSH 0.1.7
  * the host `settings` service is the only correct writer for them: it commits
- * the edit into the profile patch and into the running references
- * (docs/RESEARCH.md §4.1). This module is the whitelist and validation layer
+ * the edit into the profile patch and into the running references. This module is the whitelist and validation layer
  * in front of that writer, so the `/config` endpoint can never write an
  * unknown key, a non-volatile field, or an out-of-range value.
  *
@@ -18,6 +17,12 @@ export interface PreferenceValues {
   enabled: boolean
   /** Configured proxy port (applies on the next start). */
   listenPort: number
+  /**
+   * Bind address (applies on the next start). The settings page offers exactly
+   * two values — `0.0.0.0` (LAN) and `127.0.0.1` (this machine only); a NIC
+   * literal stays a profile-patch-only, advanced setting.
+   */
+  listenHost: string
   /** Selected NIC name or address; empty string means "automatic". */
   networkInterface: string
   /** Whether a new device must name itself once before it is let in. */
@@ -32,8 +37,8 @@ export interface PreferenceValues {
 
 /** The switch keys, in display order. */
 export const PREFERENCE_KEYS = [
-  'enabled', 'listenPort', 'networkInterface', 'mode', 'adminPolicy', 'adminProtection', 'allowLoopback',
-  'requirePairing', 'requireApproval',
+  'enabled', 'listenPort', 'listenHost', 'networkInterface', 'mode', 'adminPolicy', 'adminProtection',
+  'allowLoopback', 'requirePairing', 'requireApproval',
 ] as const
 
 /** One preference key. */
@@ -42,6 +47,14 @@ export type PreferenceKey = (typeof PREFERENCE_KEYS)[number]
 /** Values accepted by each enumerated switch. */
 const AUTH_MODES: readonly AuthMode[] = ['password', 'token', 'token_and_password']
 const ADMIN_POLICIES: readonly AdminPolicy[] = ['password_unlock', 'local_only', 'open']
+/**
+ * The bind addresses the settings page may write.
+ *
+ * Deliberately a closed set: this endpoint is reachable from the LAN under the
+ * default policy, and "write any address string" is a needless widening. A
+ * specific NIC literal remains available through the profile patch.
+ */
+export const LISTEN_HOSTS: readonly string[] = ['0.0.0.0', '127.0.0.1']
 
 /** Raised when a patch carries a value the endpoint must refuse. */
 export class PreferenceError extends Error {
@@ -55,6 +68,7 @@ export class PreferenceError extends Error {
 export function readPreferences(config: {
   enabled: boolean
   listenPort: number
+  listenHost: string
   networkInterface: string | null
   auth: {
     mode: AuthMode
@@ -68,6 +82,7 @@ export function readPreferences(config: {
   return {
     enabled: config.enabled,
     listenPort: config.listenPort,
+    listenHost: config.listenHost,
     networkInterface: config.networkInterface ?? '',
     requirePairing: config.auth.requirePairing,
     requireApproval: config.auth.requireApproval,
@@ -81,7 +96,7 @@ export function readPreferences(config: {
 /**
  * Validate one client-supplied patch, dropping unknown keys.
  *
- * Dropping is deliberate (docs/SPEC.md F6): an unknown key is either a typo or
+ * Dropping is deliberate: an unknown key is either a typo or
  * an attempt to reach a field this endpoint does not own, and neither may
  * reach the settings writer.
  *
@@ -107,6 +122,15 @@ export function sanitizePreferencePatch(patch: unknown): Partial<PreferenceValue
       throw new PreferenceError('listenPort must be an integer between 0 and 65535')
     }
     result.listenPort = value
+  }
+  if (Object.hasOwn(source, 'listenHost')) {
+    const value = source.listenHost
+    // A closed set on purpose: the two states the settings page can show. A
+    // NIC literal is an advanced, profile-patch-only setting.
+    if (typeof value !== 'string' || !LISTEN_HOSTS.includes(value)) {
+      throw new PreferenceError(`listenHost must be one of ${LISTEN_HOSTS.join(', ')}`)
+    }
+    result.listenHost = value
   }
   if (Object.hasOwn(source, 'networkInterface')) {
     const value = source.networkInterface
@@ -161,6 +185,7 @@ export function toSettingsPatch(values: Partial<PreferenceValues>): Record<strin
   const auth: Record<string, unknown> = {}
   if (values.enabled !== undefined) patch.enabled = values.enabled
   if (values.listenPort !== undefined) patch.listenPort = values.listenPort
+  if (values.listenHost !== undefined) patch.listenHost = values.listenHost
   if (values.networkInterface !== undefined) patch.networkInterface = values.networkInterface
   if (values.requirePairing !== undefined) auth.requirePairing = values.requirePairing
   if (values.requireApproval !== undefined) auth.requireApproval = values.requireApproval

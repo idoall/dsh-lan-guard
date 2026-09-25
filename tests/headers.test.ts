@@ -1,5 +1,5 @@
 /**
- * Header translation tests (docs/SPEC.md F1/F2, §6.6).
+ * Header translation tests.
  *
  * These pin the two invariants the DSH fence depends on: the upstream always
  * sees its own loopback authority, and no hop-by-hop or credential-bearing

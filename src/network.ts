@@ -1,5 +1,5 @@
 /**
- * dsh-lan-guard — network interface discovery (docs/SPEC.md F5).
+ * dsh-lan-guard — network interface discovery.
  *
  * The LAN address a phone must type depends on which NIC is actually on the
  * same network. Virtual adapters (WSL, VMware, Docker, Tailscale, VPN tunnels)

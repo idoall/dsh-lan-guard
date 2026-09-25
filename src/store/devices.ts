@@ -6,7 +6,7 @@
  * credential per phone, so a lost device can be cut off without disturbing the
  * others.
  *
- * Credential hygiene (docs/GUARDRAILS.md §4):
+ * Credential hygiene:
  *
  * - the plaintext token is returned exactly ONCE, when the device is created;
  * - only its SHA-256 hash is persisted, with mode 600, in the plugin dataDir;

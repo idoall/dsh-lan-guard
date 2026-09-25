@@ -2,7 +2,7 @@
  * A fake DSH loopback web server for the P1 suite.
  *
  * It reproduces the two upstream behaviours the proxy depends on, both taken
- * from the real implementation (docs/RESEARCH.md §3.2/§3.3):
+ * from the real implementation:
  *
  * 1. `GET /?token=<launch token>` → `303` + `Set-Cookie` + `Location: ./`.
  *    The cookie NAME is a hash of the request authority, so a test can prove
@@ -12,7 +12,7 @@
  *    `401` — the exact failure mode route A exists to avoid.
  *
  * It binds `127.0.0.1` with port `0` only: the suite must never listen on a
- * network interface (docs/SPEC.md §7 "约束").
+ * network interface.
  */
 import { createHash } from 'node:crypto'
 import { createServer, type IncomingHttpHeaders, type IncomingMessage, type Server, type ServerResponse } from 'node:http'

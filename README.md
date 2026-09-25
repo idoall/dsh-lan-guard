@@ -1,169 +1,227 @@
 <h1 align="center">DSH LAN Guard</h1>
 
-<p align="center">Use the official DeepSeek Harness Web UI from your phone — a gated reverse proxy on your LAN that never touches DSH's own loopback binding.</p>
+<p align="center">Expose the desktop DSH Web UI to your LAN safely: a gated reverse proxy with self-signed HTTPS by default and a QR code to open it on a phone. DSH's own loopback binding and the official UI stay untouched.</p>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/dsh-lan-guard"><img src="https://img.shields.io/npm/v/dsh-lan-guard?label=npm&color=CB3837" alt="npm version"></a>
   <a href="https://github.com/idoall/dsh-lan-guard/actions/workflows/ci.yml"><img src="https://github.com/idoall/dsh-lan-guard/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://www.npmjs.com/package/dsh-lan-guard"><img src="https://img.shields.io/npm/v/dsh-lan-guard?label=npm&color=CB3837" alt="npm version"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-0F172A" alt="MIT"></a>
+  <img src="https://img.shields.io/badge/DSH-0.1.7--rc.2-4B6BFB" alt="DSH 0.1.7-rc.2">
 </p>
 
 <p align="center">English | <a href="README.zh.md">中文</a></p>
 
 <p align="center">
-  <a href="#features">Features</a> ·
-  <a href="#install">Install</a> ·
-  <a href="#usage">Usage</a> ·
+  <a href="#what-it-does">What it does</a> ·
+  <a href="#quick-start">Quick start</a> ·
+  <a href="#settings">Settings</a> ·
   <a href="#compatibility">Compatibility</a> ·
-  <a href="#configuration">Configuration</a> ·
+  <a href="#security-boundary">Security boundary</a> ·
   <a href="#troubleshooting">Troubleshooting</a> ·
-  <a href="#security-boundary">Security</a> ·
-  <a href="#uninstall">Uninstall</a> ·
-  <a href="#development">Development</a>
+  <a href="CHANGELOG.md">Changelog</a>
 </p>
 
-> DSH LAN Guard is a community plugin for DeepSeek Harness. It does not modify DSH core, does not change DSH's own listening address, and reuses the official Web UI unmodified.
+> DSH LAN Guard is a DeepSeek Harness community plugin. It registers one section in the official settings page (`settings.section`), replaces no official layout, and modifies neither DSH source nor DSH's own listen binding.
 
-DSH serves its Web UI on `127.0.0.1` only, so phones and tablets cannot reach it, and DSH deliberately refuses to bind `0.0.0.0`. This plugin leaves that binding alone and runs a **second, gated port** that proxies the official UI to your LAN: password gate, self-signed HTTPS by default, a QR code to open it on a phone, and per-device pairing you can revoke one by one.
+DSH serves its Web UI on `127.0.0.1` only, and it deliberately refuses to bind `0.0.0.0`. This plugin leaves that binding alone and opens a **second, gated** listener on another port, proxying the official UI outward as-is: a password gate, self-signed HTTPS by default, a QR code to open it on a phone, and device pairing you can approve or block one by one. **One restart after install is all it takes** — no hand-written configuration.
 
-## Features
+<p align="center">
+  <img src="./assets/settings-access.png" width="78%" alt="Settings → 局域网访问 → 扫码访问: running state, passwordless link and a scannable QR code">
+</p>
 
-- **Gated reverse proxy** — full HTTP and WebSocket forwarding (the official UI's `/api/remote.mux` mux included), `Host`/`Origin` rewriting, hop-by-hop header stripping, `502` when the upstream is unreachable.
-- **Password gate** — PBKDF2-SHA256 (600,000 iterations), a separate **access password** (phones) and **admin password** (this console), a `dsh_` passwordless link, persistent visitor sessions, per-IP lockout and CSRF checks.
-- **Self-signed HTTPS by default** — generates its own `DSH LAN Guard CA`, issues a leaf certificate for the selected NIC address, and keeps the CA identity stable across restarts so devices only trust it once.
-- **Your own machine is never locked** — direct `127.0.0.1` access is physically unlocked. Remote access follows `auth.adminPolicy`: read-only (default), password-unlocked, or open.
-- **Per-device pairing** — a phone that passes the gate names itself once, receives an HttpOnly device cookie, appears in the settings page (name / created / last used / source IP) and can be revoked individually. A revoked device is refused with `403` immediately.
-- **Settings inside the official page** — a "局域网访问" section with four tabs: QR access, authentication, authorised devices, connection & certificates. All typography and colours use the official design tokens; the official layout is never replaced.
-- **Configurable port** — defaults to `3081` (DSH's port + 1), walks up to ten ports when that one is taken, editable in the settings page with an availability check.
+## What it does
+
+- **Gated reverse proxy** — relays HTTP and WebSocket end to end (including the official UI's `/api/remote.mux` long connection), rewrites `Host`/`Origin`, strips hop-by-hop headers, and answers `502` when the upstream is down. DSH's own binding and configuration are never touched.
+- **LAN-ready by default, but reachable is not the same as enterable** — it binds `0.0.0.0`, so **one restart** after install is enough. The gate is on by default and **refuses every device until you set an access password**, and TLS is self-signed by default — nothing travels in clear. Switch to "this machine only" in the settings page if you prefer.
+- **Two passwords** — PBKDF2-SHA256 (600,000 iterations). The **access password** logs visitor devices in; the **admin password** unlocks this settings page's management console (it falls back to the access password). Plus a `dsh_` passwordless link, persistent visitor sessions, per-IP lockout and CSRF checks.
+- **Self-signed HTTPS by default, with a stable CA** — generates a `DSH LAN Guard CA` and signs a leaf certificate for the current NIC addresses. Changing IP only re-signs the leaf, so each device trusts the CA once.
+- **Your own machine is never locked** — direct `127.0.0.1` access is physically unlocked (whoever can use this computer could change these settings anyway). Remote access follows `adminPolicy`: read-only (default), password-unlocked, or open.
+- **Device pairing and permanent blocking** — a phone names itself once when it first passes the gate, receives an HttpOnly device-identity cookie, and appears under **已授权设备** (name / created / last used / source IP) where you can **revoke and block** it. Blocking does not rely on device fingerprinting: re-pairing with the access password from another browser is refused too, and unblocking is the only way back.
+- **Settings inside the official page** — the "局域网访问" section has four tabs: QR access, authentication, authorised devices, and connection & certificates. All typography and colours use the official design tokens; **no official layout is replaced**.
+- **Configurable port and listen scope** — defaults to `3081` (DSH's port + 1) and walks up to ten ports when that one is taken, with an availability check in the settings page. The listen scope toggles between "LAN (default)" and "this machine only"; both need a DSH restart.
 - **Optional mDNS** — off by default; advertises `_dsh-lan-guard._tcp` when enabled.
+- **Update check** — the settings page shows "current version → latest on npm" with a copyable upgrade command. The plugin **never installs or restarts anything itself**.
 
-## Install
+## Quick start
 
-```sh
-dsh plugin --profile web add dsh-lan-guard
-```
+Requirements:
 
-Then restart DSH once (the plugin's server half is loaded at startup) and open **Settings → 局域网访问**.
+- DeepSeek Harness with a Web profile
+- Node.js 20 or newer
+- Verified DeepSeek Harness: `0.1.7-rc.2`
 
-## Usage
-
-1. In **Settings → 局域网访问 → 安全认证**, set an **access password** (at least 8 characters). Until you do, the gate refuses every device.
-2. In **连接与证书**, pick the NIC to publish on. `0.0.0.0` is the default for a configured plugin; set `listenHost: 127.0.0.1` in the config to keep it local-only while you try it out.
-3. Open the **扫码访问** tab and scan the QR code with your phone.
-4. On the phone: trust the `DSH LAN Guard CA` certificate (the SHA-256 fingerprint is shown in the settings page), enter the access password once, then **name the device** on the pairing page.
-5. The phone now runs the official DSH UI. It appears under **已授权设备**, where you can revoke it at any time.
-
-> Remote devices are **read-only** by default (`adminPolicy: local_only`): they can use DSH but cannot change plugin settings. Switch the policy on the desktop if you want a phone to manage them.
-
-## Compatibility
-
-Current release: plugin **`0.3.1`** is verified against DeepSeek Harness **`0.1.7-rc.2`** (the latest release candidate).
-
-### Which plugin version goes with which DeepSeek Harness version
-
-| Plugin | Verified DeepSeek Harness | On npm | What that version is |
-| --- | --- | --- | --- |
-| **`0.3.1`** | **`0.1.7-rc.2`**, `0.1.7-rc.1` | `latest` | Verification release for DSH `0.1.7-rc.2`: no code change — compatibility metadata and this table updated |
-| `0.3.0` | `0.1.7-rc.1` | published | Device approval and permanent ban (F9); fixed the blank page when opening a shared `?auth=` link |
-| `0.2.0` | `0.1.7-rc.1` | published | Update detection; removed the bottom-right status pill; spacing fix |
-| `0.1.1` | `0.1.7-rc.1` | published | Documentation release: bilingual user README |
-| `0.1.0` | `0.1.7-rc.1` | published | First release: gated reverse proxy, self-signed HTTPS, device pairing, settings UI, QR access |
-
-- The declared range is `>=0.1.7-rc.1 <0.2.0` (`dsh.engines.dsh`), and `dsh.compatibility.dshReleases` records **`0.1.7-rc.2: compatible`** and `0.1.7-rc.1: compatible`.
-- **How `0.3.1` was verified on `0.1.7-rc.2`**: every host/client surface this plugin uses is present and unchanged — `webServer.register` / `indexTaps`, `connection.requestRejection`, `connection.authenticatedUrl`, the additive `settings.section` and `shell.overlay` seats, and `@deepseek-ai/schemastery` — and the plugin runs end-to-end (settings page, QR access, gate, proxy) on that release. No source change was required.
-- A DSH release that is not listed is **unverified** — test it before trusting it.
-- Install a specific version when it matters:
-
-  ```sh
-  dsh plugin --profile web add dsh-lan-guard@0.3.1
-  ```
-
-## Configuration
-
-The plugin reads its config from its Cordis entry (profile patch or `dsh plugin` config). Defaults are conservative: **nothing is published until you say so.**
-
-```yaml
-enabled: true                    # master switch
-listenHost: 0.0.0.0              # default 127.0.0.1 (loopback only); set to face the LAN
-listenPort: 3081                 # DSH port + 1; auto-walks up to 10 ports when taken
-upstreamOrigin: http://127.0.0.1:3080
-dataDir: ~/.dsh/profiles/web/data/dsh-lan-guard
-networkInterface: en0            # optional: publish on one NIC (empty = automatic)
-tls:
-  mode: self-signed              # 'self-signed' (default) | 'provided' | 'off'
-  allowInsecureLan: false        # required acknowledgement for LAN plain HTTP
-mdns:
-  enabled: false                 # advertise _dsh-lan-guard._tcp
-auth:
-  mode: token_and_password       # 'token_and_password' | 'password' | 'token'
-  adminPolicy: local_only        # 'local_only' (default) | 'password_unlock' | 'open'
-  adminProtection: true          # admin console needs the admin password
-  allowLoopback: true            # 127.0.0.1 visitors skip the gate (physically unlocked)
-  requirePairing: true           # new remote devices must name themselves once
-```
-
-Every key above can also be changed from the settings page (the non-sensitive ones are declared as volatile config fields).
-
-## Device approval and permanent ban
-
-Paired devices are listed under **Settings → 局域网访问 → 已授权设备** with three groups: **pending**, **approved** and **blocked**.
-
-- Turn on **新设备需要管理员批准** to require an explicit approval before a newly paired device is let in (off by default). A pending phone sees a "waiting for approval" page until you press **批准**.
-- **吊销并拉黑** cuts a device off permanently: its identity is blocked, and re-pairing with the access password from another browser is refused too. **解除拉黑** is the only way back.
-- This deliberately does not use device fingerprinting (which breaks whenever the browser or OS changes) — the operator decides, and the decision sticks.
-
-## Updates
-
-The settings page shows the running version next to the newest one on npm, with a **copyable** upgrade command:
+Install from npm:
 
 ```sh
 dsh plugin --profile web add dsh-lan-guard@latest
 ```
 
-The plugin never installs anything by itself and never restarts DSH — run the command yourself and restart DSH once. The check only asks the public npm registry, is cached for six hours, and a failure is reported in the UI instead of breaking the gate.
+Install from GitHub:
 
-## Troubleshooting
+```sh
+dsh plugin --profile web add "github:idoall/dsh-lan-guard"
+```
 
-**The phone shows a certificate warning.** The CA is self-signed: install/trust `DSH LAN Guard CA` once per device. Compare the fingerprint shown in **连接与证书** before trusting it.
+Install from a local clone:
 
-**The phone cannot reach the address at all.** Check that the phone is on the same network, that the address matches the QR code, and that no VPN or "private relay" feature is intercepting traffic. The settings page shows the address the listener is actually bound to.
+```sh
+git clone https://github.com/idoall/dsh-lan-guard.git
+cd dsh-lan-guard
+pnpm install && pnpm run build
+dsh plugin --profile web add "link:$(pwd)"
+```
 
-**"配置的端口 X 已被占用，已自动改用 Y".** Something else holds the port; the plugin moved on by itself. Set a different port in **连接与证书** (it has an availability check) or free the port.
+Then **restart DSH once** and open **Settings → 局域网访问**. After that restart the plugin is already listening on the LAN (default `0.0.0.0:3081`, self-signed HTTPS + gate); all you do is:
 
-**"此设备已被移除访问权限" (403).** The device was revoked under **已授权设备**. Delete that record to let it pair again.
+1. Set an **access password** (at least 8 characters) under **安全认证**. Until you do, the gate refuses every device.
+2. Check the **listen scope** under **连接与证书** (LAN by default) and pick the NIC to publish on — the NIC decides which IP the QR code / access URL uses and which addresses the self-signed certificate covers.
+3. Scan the QR under **扫码访问**, trust `DSH LAN Guard CA` once on the phone, enter the access password, and name the device. The phone then runs the official DSH UI.
 
-**I forgot the access password.** On the machine that runs DSH, open `http://127.0.0.1:3080` (direct loopback access is physically unlocked) and set a new one. On a headless server, delete `secrets.json` in `dataDir` and set a new password — until then the gate refuses every device.
+> Remote devices are **read-only** by default (`adminPolicy: local_only`): they can use DSH but cannot change plugin settings. Switch the policy on the desktop if you want a phone to manage them.
 
-**Every device asks for the password again after I changed it.** That is intentional: changing the access password or the auth mode revokes every existing visitor session.
+## Settings
 
-**Plain HTTP on the LAN is refused.** `listenHost` + `tls.mode: 'off'` is rejected unless you set `tls.allowInsecureLan: true` — the gate password would otherwise travel in clear text.
+Everything lives under **Settings → 局域网访问**, in four tabs. The non-sensitive switches (`enabled`, `listenPort`, `listenHost`, `networkInterface`, `auth.mode`, `auth.adminPolicy`, `auth.adminProtection`, `auth.allowLoopback`, `auth.requirePairing`, `auth.requireApproval`) are editable directly; `listenPort` and `listenHost` take effect on the next DSH restart; `dataDir` and `tls.*` are startup fields that need a profile-patch edit.
+
+| Setting | Default | Effect |
+| --- | --- | --- |
+| Listen scope | **LAN `0.0.0.0`** | Whether the LAN can reach the port. "This machine only `127.0.0.1`" is more conservative; needs a DSH restart. Both choices keep the gate and self-signed HTTPS in force. |
+| Proxy port | **3081** | DSH's port + 1; walks up to ten ports when taken, with an availability check. Needs a DSH restart. |
+| NIC to publish on | automatic | Decides which IP the QR code / access URL uses and which addresses the certificate covers; virtual NICs are de-prioritised and labelled. |
+| Auth mode | **passwordless QR + password** | Also "password only" or "secure token only". Switching **revokes every existing visitor session**. |
+| Access password | unset | The login password for visitor devices. **While unset, the gate refuses every device.** |
+| Admin password | unset | Unlocks this settings page's management console; falls back to the access password. |
+| Loopback exempt | **on** | Direct `127.0.0.1` access skips the gate (physically unlocked). |
+| Require naming | **on** | A new device must name itself once before it appears in the device list. |
+| Require approval | off | When on, a named device still needs your **批准** before it is let in. |
+| TLS | **self-signed HTTPS** | Turning it off sends the gate password in clear; a non-loopback bind with TLS off is **refused at startup** unless you set `tls.allowInsecureLan: true`. |
+
+<p align="center">
+  <img src="./assets/settings-connection.png" width="78%" alt="Connection &amp; certificates: the listen-scope switch between LAN (default) and this-machine-only, the proxy port with its availability check, and NIC selection">
+</p>
+
+The plugin reads its config from its Cordis entry. **Every key has a usable default, so a fresh install works as-is:**
+
+```yaml
+# ~/.dsh/profiles/web/cordis.patch.yml (optional: write only what you want to change)
+- id: dsh-lan-guard
+  config:
+    listenHost: 0.0.0.0              # LAN-facing by default; '127.0.0.1' = this machine only, or one NIC IP
+    listenPort: 3081                 # DSH port + 1; auto-walks up to 10 ports when taken
+    networkInterface: en0            # optional: publish on one NIC (empty = automatic)
+    dataDir: ~/.dsh/profiles/web/data/dsh-lan-guard   # optional; this is the derived default
+    tls:
+      mode: self-signed              # 'self-signed' (default) | 'provided' | 'off'
+      allowInsecureLan: false        # required acknowledgement for LAN plain HTTP
+    mdns:
+      enabled: false                 # advertise _dsh-lan-guard._tcp
+    auth:
+      mode: token_and_password       # 'token_and_password' | 'password' | 'token'
+      adminPolicy: local_only        # 'local_only' (default) | 'password_unlock' | 'open'
+      adminProtection: true          # admin console needs the admin password
+      allowLoopback: true            # 127.0.0.1 visitors skip the gate (physically unlocked)
+      requirePairing: true           # new remote devices must name themselves once
+```
+
+`dataDir` is the only key that needs explaining: **omit it** and the plugin uses `<active profile>/data/dsh-lan-guard` (e.g. `~/.dsh/profiles/web/data/dsh-lan-guard`); **set it** and your value wins (a leading `~` is expanded). It only decides where the plugin's private state (password hashes, device-token hashes, sessions, self-signed CA) lives — never whether the plugin works.
+
+<p align="center">
+  <img src="./assets/settings-security.png" width="78%" alt="Authentication: the three-way mode selector, access and admin password fields, and the loopback-exempt switch">
+</p>
+
+<p align="center">
+  <img src="./assets/settings-devices.png" width="78%" alt="Authorised devices: naming and admin-approval switches, plus the device list with revoke-and-block">
+</p>
+
+## Compatibility
+
+Current repository version: plugin **`0.3.1`**, verified on DeepSeek Harness **`0.1.7-rc.2`**.
+
+| Plugin | Verified DeepSeek Harness | What this version is |
+| --- | --- | --- |
+| **`0.3.1`** | **`0.1.7-rc.2`**, `0.1.7-rc.1` | Verification release for `0.1.7-rc.2`: no code change, only compatibility metadata |
+| `0.3.0` | `0.1.7-rc.1` | Device approval and permanent blocking; fixed the blank page when opening a shared `?auth=` link |
+| `0.2.0` | `0.1.7-rc.1` | Update check; removed the corner status pill; spacing fixes |
+| `0.1.1` | `0.1.7-rc.1` | Documentation release: bilingual user READMEs |
+| `0.1.0` | `0.1.7-rc.1` | First release: gated reverse proxy, self-signed HTTPS, device pairing, settings page, QR access |
+
+- Declared range `>=0.1.7-rc.1 <0.2.0` (`dsh.engines.dsh`); DSH versions not listed are **unverified** — verify them yourself before use.
+- Host/client interfaces this plugin uses: `webServer.register` / `indexTaps`, `connection.requestRejection`, `connection.authenticatedUrl`, the additive `settings.section` seat, `@deepseek-ai/schemastery`, and `profileContext` (for deriving the default data directory).
+- **The repository contains unreleased changes** (see the `Unreleased` section of the [CHANGELOG](CHANGELOG.md)): LAN-facing default `0.0.0.0`, the settings-page "LAN / this machine only" switch, and automatic `dataDir` derivation. **npm's `0.3.1` still defaults to `127.0.0.1` and has no listen-scope switch.**
+
+The official UI is reused with zero modifications and adapts on a phone viewport:
+
+<p align="center">
+  <img src="./assets/mobile.png" width="30%" alt="The official DSH UI at a 390px phone viewport: the plugin only proxies, the interface is the official one">
+</p>
 
 ## Security boundary
 
-- DSH's own listener is untouched; this plugin never edits DSH config or the official UI.
-- Secrets (`secrets.json`, `devices.json`, sessions) live in `dataDir` with mode `600`; the plaintext device token is returned once and only its SHA-256 hash is stored.
-- The gate applies before the listener is useful, and the proxy stamps every forwarded request with an unforgeable origin marker so the host can tell the machine's own operator from a proxied visitor.
-- Loopback direct access is **physically unlocked by design** — anyone who can already use that machine can change these settings.
-- The access password is **shared**: revoking a device invalidates that device's identity cookie immediately, but re-pairing with the password from another browser is still possible. A permanent per-machine ban would need device fingerprinting or per-device tokens.
-- LAN-only by design: no public tunnels, no IM bots, no port forwarding.
+- DSH's own listen address is never changed; the plugin modifies no DSH configuration, session data, or official UI.
+- **Gate before listener** — the listener only opens after the gate object is constructed. The LAN-facing default is acceptable precisely because `auth.enabled` defaults to true, **the gate refuses every non-loopback device while no access password is set**, and TLS defaults to self-signed. All three must hold together.
+- Secrets (`secrets.json`, `devices.json`, sessions) live in `dataDir` with mode `600`; passwords are stored only as PBKDF2-SHA256 hashes, a device token is returned in plaintext once and only its SHA-256 hash is stored, and **the passwordless-link token is never written to logs**.
+- The proxy stamps every forwarded request with an unforgeable source marker so the host can tell "the machine's own operator" from "a visitor through the proxy".
+- Loopback access is **physically unlocked by design** — whoever can use this computer could change these settings anyway.
+- The access password is **shared**: revoking a device invalidates that device's identity cookie immediately, but the same browser can re-pair with the password. Permanently blocking one machine would need device fingerprinting or per-device tokens, which this project deliberately avoids.
+- LAN only: no public tunnels, no IM bots, no port forwarding.
+- The plugin **installs, restarts and pushes nothing**: you copy and run the upgrade command yourself.
+
+## Troubleshooting
+
+**The phone says the certificate is not trusted.** The CA is self-signed: install/trust `DSH LAN Guard CA` once per device. Compare the SHA-256 fingerprint shown under **连接与证书** first.
+
+**The phone cannot connect at all.** Confirm both devices are on the same network and that the address matches the QR code, check for a VPN or a "private relay"-style feature intercepting traffic, and make sure the **listen scope** was not switched to "this machine only".
+
+**The settings page says the port is open to the LAN but no access password is set.** That is the expected intermediate state: the port is reachable, but the gate refuses every device and leaks nothing. Set an access password under **安全认证**.
+
+**"Configured port X was taken; switched to Y."** Another program holds the port and the plugin walked forward. Change the port under **连接与证书** (with an availability check) or free it.
+
+**"This device's access was removed" (403).** The device was revoked or blocked under **已授权设备**. Delete the record to let it pair again (a blocked device needs **解除拉黑** first).
+
+**I forgot the access password.** On the machine that runs DSH, open `http://127.0.0.1:3080` (direct loopback access is physically unlocked) and set a new one. On a headless server, delete `secrets.json` in `dataDir` and set a new password — until then the gate refuses every device.
+
+**Every device needs the password again after I changed it.** That is intentional: changing the access password or switching the auth mode **revokes every existing visitor session**.
+
+**Plain HTTP on the LAN is refused.** A non-loopback `listenHost` with `tls.mode: 'off'` is rejected unless you set `tls.allowInsecureLan: true` — the gate password would otherwise travel in clear text.
+
+## Upgrade
+
+The settings page shows "current version → latest on npm" with a **copyable** upgrade command:
+
+```sh
+dsh plugin --profile web add dsh-lan-guard@latest
+```
+
+The plugin **installs nothing and restarts nothing** — you run the command and then restart DSH once. The check only queries the public npm registry and caches results for six hours; when it cannot reach the registry it says so in the UI and leaves the gate and proxy untouched.
 
 ## Uninstall
 
 ```sh
 dsh plugin --profile web remove dsh-lan-guard
-rm -rf ~/.dsh/profiles/web/data/dsh-lan-guard   # optional: removes secrets, devices and the CA
+rm -rf ~/.dsh/profiles/web/data/dsh-lan-guard   # optional: removes secrets, device records and the CA
 ```
 
 ## Development
 
 ```sh
 pnpm install
-pnpm test          # unit + integration tests (typecheck included)
+pnpm test          # unit + integration tests (includes type checking)
 pnpm run build     # bundles lib/index.js and lib/client.js
 pnpm run verify    # typecheck + tests + build + pack dry-run
 ```
 
-The design and verification record lives in [`docs/`](docs/) — `SPEC.md` (what it must do), `PLAN.md` (phase gates and what was verified when), `RESEARCH.md` (verified DSH facts), `GUARDRAILS.md` (red lines), `RELEASE.md` (release flow).
+The client half registers into the official additive `settings.section` seat; the host half mounts through the package's own `cordis.patch.yml`.
+
+## Release
+
+Releases are tag-driven. Update `package.json`, move the matching CHANGELOG section out of `Unreleased`, write `release-notes/v<version>.md` with both language anchors, then push the release commit and tag:
+
+```sh
+git tag v0.3.1
+git push origin v0.3.1
+```
+
+The release workflow checks that the tag matches the `package.json` version and that the notes carry both anchors, then runs `pnpm run verify`, packs the plugin, publishes through npm trusted publishing (OIDC), and creates a GitHub Release with the tarball attached.
 
 ## License
 

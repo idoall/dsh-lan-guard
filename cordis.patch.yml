@@ -3,9 +3,10 @@
 # form — DSH 0.1.7 identifies a form by the Loader entry id, so the `id` below
 # is the storage namespace and must not change).
 #
-# No config block on purpose: `dataDir` has no safe default (the plugin never
-# guesses a profile path — see docs/SPEC.md §5), so a fresh install starts
-# inert and logs the exact field to set. Add your own config under this row.
+# No config block on purpose: every field has a working default, so a fresh
+# install is usable as-is — `dataDir` derives to `<profile>/data/dsh-lan-guard`
+# and the listener defaults to the LAN. Add config under this row only to
+# override something (for example `listenHost: '127.0.0.1'` for loopback only).
 - insert:
     - id: dsh-lan-guard
       name: dsh-lan-guard

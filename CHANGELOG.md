@@ -1,16 +1,72 @@
 # Changelog
 
+## [Unreleased] — 装完即用：默认对外监听 + `dataDir` 自动推导（2026-09-25）
+
+### 变更（安全默认值）— `listenHost` 默认改为 `0.0.0.0`，并可在设置页切换
+
+**用户决策（2026-09-25）**：插件装完只会重启一次 dsh，若默认还是 `127.0.0.1`，用户必须改配置再重启一次才能用——体验不可接受。因此默认改为**面向局域网**。
+
+这不是"关掉安全"的开关，默认值仍然成对成立：
+
+- `auth.enabled` 默认 **true**；**未设访问密码时门禁拒绝所有非回环设备**（登录页可见，但不放行、不泄露数据）；
+- `tls.mode` 默认 **self-signed**（不存在明文传输）；`tls.allowInsecureLan` 仍默认 false，非回环 + 关 TLS 依旧**拒绝启动**。
+
+改动：
+
+- `src/config.ts`：`DEFAULT_LISTEN_HOST` → `'0.0.0.0'`；`listenHost` 升为 **volatile** 字段，`LiveSwitches` 新增 `listenHost()`（`unwrapVolatileInput` / `liveSwitches` / `staticSwitches` 同步）；
+- `src/store/preferences.ts`：`listenHost` 进入偏好白名单与 `toSettingsPatch`；新增 `LISTEN_HOSTS` **闭集** `['0.0.0.0','127.0.0.1']`——端点不接受任意地址字符串，具体网卡 IP 仍属 profile patch 的高级配置；
+- `src/settings/routes.ts`：快照的 `preferences` 带上 `listenHost`；**新增拒绝规则**——`auth.enabled: false` 时拒绝写入非回环地址（该组合在启动时本就被 `parseConfig` 拒绝，写进去只会让下次重启起不来；宁可拒绝保存，也不要启动失败）；
+- `src/client.ts`：「连接与证书」新增 **「局域网（默认） / 仅本机」** 两选一开关（标注"修改后需重启 dsh 生效"），当前值为自定义网卡 IP 时给出说明；「扫码访问」tab 在**对外可达且尚未设密码**时给出明确警示（端口可见 / 门禁拒绝所有设备 / 请先设密码）；
+- **测试套件全部显式绑 `127.0.0.1`**：默认值变了之后，测试必须自己声明回环，绝不允许测试进程打开对外监听。改动前那批用例会因「非回环 + 关 TLS」被 `parseConfig` 直接拒绝而失败——失败是安全的，没有真的绑上 `0.0.0.0`；
+- 测试：`pnpm test` **241 项**全绿。
+
+### 修复 — 安装后设置页显示 `settings request failed: 404`，插件根本没启动
+
+**症状**：`dsh plugin --profile web add dsh-lan-guard@0.3.1` 装好并重启 dsh 后，**设置 → 局域网访问** 只显示 `settings request failed: 404`。
+
+**根因（实机复现，非推断）**：包内 `cordis.patch.yml` 的 insert 行**不带 config**，而 `parseConfig` 当时要求 `dataDir` 必填 → `apply` 抛 `LanGuardConfigError` → 宿主半边未加载 → `/plugins/dsh-lan-guard/*` 路由**一条都没注册**。客户端半边由 `dsh.client.inject` 独立收集，所以设置分区照常渲染，只是把裸 404 显示出来。
+
+实测证据：
+
+- `dsh --profile web --dump-config` 里该行只有 `id`/`name`；`~/.dsh/profiles/web/cordis.patch.yml` 里也没有本插件的行；
+- 运行中的 DSH 上 `/plugins/dsh-lan-guard/config` 与 `/auth-status` → **404**；而**已注册**的路由对未认证 curl 返回 **401**（`/`、`/api/remote.mux`）⇒ 404 是"路由不存在"，不是门禁拒绝；
+- 直调装好的插件：`startLanGuard(host, {})` → `LanGuardConfigError: dataDir is not set`；给定 `dataDir` 后回环 + 自签 TLS 均正常启动。
+
+### 变更 — `dataDir` 不再必填，缺省按 profile 推导（2026-09-25 用户授权修改）
+
+用户要求「安装上就可以使用，不需要手动写配置，如果需要可以再去改」——借鉴的 dsh-mobile / dsh-bridge 都能做到。解析优先级：
+
+1. **条目 config 里的显式 `dataDir`**（支持 `~` 前缀）；
+2. **`<profileDir>/data/dsh-lan-guard`**——来自 DSH 自己的 `profileContext` 服务（`dsh` 启动的任何 profile 都有；CLI 与桌面端共用 `runProfile`）。与同机 `dsh-notify` / `dsh-session-colors` 落点一致，**按 profile 隔离**；
+3. 两者皆无 → 仍**拒绝启动**并给出可操作提示（不再"猜"一个跨 profile 共用的目录）。
+
+实现：
+
+- `src/config.ts`：新增 `resolveDataDir()` / `expandTilde()` / `DATA_DIR_NAME`；`parseConfig(input, profileDir?)` 接受 profile 目录；
+- `src/index.ts`：`LanGuardHost` 新增 `profileDir`；`apply` 用**可选** `ctx.get('profileContext')` 取 `dir`（拿不到时退回"必须显式配置"，插件照旧能加载，不因缺服务而整体失败）；启动日志打印实际路径与来源；
+- **修掉 `~` 不展开**：此前 `dataDir: ~/x` 会在进程 CWD 下建一个**字面量 `~` 目录**（实测），而 README 的示例正是 `~/.dsh/...`。现在自己实现三行展开，不新增运行时依赖；
+- 顺带修掉 `src/config.ts` / `src/index.ts` 里两处与函数脱节的孤儿 JSDoc。
+
+测试：**+6 项**（推导优先级、显式覆盖、空白与 `null` 视为未配置、`~` 展开、无任何来源仍拒绝启动、零配置也能起来并把数据落在 `<profile>/data/dsh-lan-guard`）；`pnpm test` **234 项全绿**。
+
+### 文档与仓库整理
+
+- **`README.md` / `README.zh.md` 重写**：改用与 `dsh-notify` 一致的版式——居中标题、徽章行、语言切换、锚点导航、功能清单、设置表、兼容性表、安全边界、排障、开发与发版；新增 **5 张真实截图**（`assets/`），并新增 `screenshots.json` 供插件市场详情页使用；
+- 截图取自**零配置**的临时 DSH 实例（`dataDir` 与 `listenHost` 均未配置，profile patch 为空数组）；图中免密链接的 token 是**占位值**（`dsh_0000…`），仓库内不含任何真实凭据；
+- README 明确标注「仓库包含尚未发布的改动」，避免 npm 上 `0.3.1` 的使用者被新默认值误导；
+- **按用户要求删除 `docs/`（设计文档）与 `AGENTS.md`（AI 协作总纲）**：`SPEC.md` / `PLAN.md` / `RESEARCH.md` / `GUARDRAILS.md` / `RELEASE.md` 与总纲文件已移除；`src/`、`tests/`、`cordis.patch.yml`、README，以及 CHANGELOG 历史条目与 `release-notes/` 里对它们的引用一并清理（`src`/`tests` 只涉及注释、一处测试名与一处错误文案，**无行为改动**）；
+- `cordis.patch.yml` 的注释同步修正：此前写着「`dataDir` 无安全默认、新装即 inert」，在本次改动后已不成立。
+
 ## [0.3.1] — 2026-09-25
 
 ### 适配 — DSH `0.1.7-rc.2` 验证版（代码零改动）
 
-用户把 DSH 升级到 `0.1.7-rc.2`，按 `docs/RESEARCH.md` §8 清单复核后确认**本插件无需源码改动**：
+用户把 DSH 升级到 `0.1.7-rc.2`，按既有复核清单逐项核对后确认**本插件无需源码改动**：
 
 - 依赖的宿主/客户端接口全部存在且未变：`webServer.register` / `indexTaps`、`connection.requestRejection`、`connection.authenticatedUrl`、追加型 `settings.section` 与 `shell.overlay` seat、`@deepseek-ai/schemastery@3.18.4`；
 - 在 `0.1.7-rc.2` 上端到端跑通（设置页、扫码访问、门禁、代理）；
 - `dsh.compatibility.dshReleases` 增加 `0.1.7-rc.2: compatible`（保留 `0.1.7-rc.1`）；`dsh.engines.dsh` 保持 `>=0.1.7-rc.1 <0.2.0`（按 semver 预发布规则本就接纳 rc.2，放宽只会接纳未测试版本）；
 - **README 中英双语兼容表重写**：补上 `0.1.0 → 0.3.1` 的完整版本对应历史，并把「当前已验证的最新 DSH 版本」更新为 `0.1.7-rc.2`；
-- `docs/RESEARCH.md` 新增 §8.9 记录本次复核。
 
 `pnpm test` 228 项全绿。
 
@@ -93,7 +149,7 @@
 - **设置页**：状态卡片加入访问地址、`复制链接` / `显示·隐藏二维码`、二维码（默认展开）、免密链接与其二维码（仅管理员解锁时返回）+ 重新生成、`请在私密环境下使用`、PWA 引导；连接与证书卡片加入 TLS 关闭影响提示与 CA 指纹。
 - **密码策略**：按**用户决策**实施最短 8 位（`MIN_PASSWORD_LENGTH`），前端提示 + 端点校验。
 - **测试 170 项**（新增 `tests/network.test.ts` 9 项、`tests/tls.test.ts` 9 项、`tests/qrcode.test.ts` 7 项，另扩充 settings-routes 与 plugin）。
-- **`docs/PLAN.md`**：经用户批准，P1/P2/P3 的「必须验证」勾选框已勾选，并在每节标注**验证方式**与**仍未验证的部分**（浏览器视觉呈现留给手机实测）。
+- **阶段验收**：经用户批准，P1/P2/P3 的「必须验证」勾选框已勾选，并在每节标注**验证方式**与**仍未验证的部分**（浏览器视觉呈现留给手机实测）。
 
 ### 实现 — P4-a 网卡选择交互（2026-09-24，用户选定范围内）
 
@@ -105,14 +161,14 @@
 
 ### 变更 — 安装进用户真实 profile（2026-09-24，用户当次明确授权）
 
-按用户授权（`AGENTS.md` §3.1 红线的当次明确要求）把插件装入用户真实的 `web` profile，**未重启 dsh**：
+按用户当次明确授权把插件装入用户真实的 `web` profile，**未重启 dsh**：
 
 - 备份：`~/.dsh/profiles/web/cordis.patch.yml.bak-lan-guard-20260924-195531`（原文件 3305 字节，权限 600 保留）；
 - 软链：`~/.dsh/profiles/web/node_modules/dsh-lan-guard` → 本仓库（与该机既有约定一致，如 `dsh-free-search`、`dsh-mobile`）；
 - 追加条目：`- id: dsh-lan-guard` + `name: dsh-lan-guard`，config 为 `listenHost: 0.0.0.0`、`listenPort: 3445`、`upstreamOrigin: http://127.0.0.1:3080`、`dataDir: ~/.dsh/profiles/web/data/dsh-lan-guard`（沿用该机既有约定）、`tls.mode: self-signed`、`auth.allowLoopback: true`；
 - 重启前预检：patch YAML 解析通过（顶层 11 条）、模块可从 profile 目录解析、导出面与 `dsh` 元数据正确、`Config(row.config)` 解析出预期值、客户端 bundle 存在。
 
-**修正一处不一致**：`auth.enabled`（门禁总开关）此前被标为 `.volatile()`，即可在设置页写入，但 `AuthManager` 读的是启动时的静态值——**可写却不生效**。按 `docs/PLAN.md` §5 工作项 9 的 volatile 清单，`auth.enabled` 已改回非 volatile（门禁总开关属启动期安全字段，见 SPEC §5 默认值原则 3）。可写开关现在恰好是：`enabled`、`networkInterface`、`auth.mode`、`auth.adminPolicy`、`auth.adminProtection`、`auth.allowLoopback`。
+**修正一处不一致**：`auth.enabled`（门禁总开关）此前被标为 `.volatile()`，即可在设置页写入，但 `AuthManager` 读的是启动时的静态值——**可写却不生效**。按既定的 volatile 清单，`auth.enabled` 已改回非 volatile（门禁总开关属启动期安全字段，见默认值原则 3）。可写开关现在恰好是：`enabled`、`networkInterface`、`auth.mode`、`auth.adminPolicy`、`auth.adminProtection`、`auth.allowLoopback`。
 
 ### 修复 — 手机访问导致 dsh 崩溃（2026-09-24，用户实测「手机一访问 DS 就崩溃」）
 
@@ -296,13 +352,13 @@ SPEC §6.2 要求「非回环 + 无 TLS 必须显式确认」，此前只是**�
 | 提示条、字段标签 | 13px / 400 | `--dsw-font-xs-13` → 13px / 20px |
 | 等宽信息框 | 13px + 自定 mono 栈 | `--dsw-font-xs-13` + 官方 `--ds-font-family-code` |
 
-实测对齐（真实 DSH，browser-skill 读 `getComputedStyle`）：`.lg-title` 16/500/24、`.lg-sub` 12/400/18、`.lg-btn` 14/500/22、`.lg-tab(选中)` 14/500/22、`.lg-mono` 13/400/20（SF Mono），**字距全部 `normal`**（与官方 nav 项一致）。官方 token 清单与「不许自定排版」的硬约束已写入 `docs/RESEARCH.md` §4.2.13 与 `docs/SPEC.md` F6 视觉规范表。
+实测对齐（真实 DSH，browser-skill 读 `getComputedStyle`）：`.lg-title` 16/500/24、`.lg-sub` 12/400/18、`.lg-btn` 14/500/22、`.lg-tab(选中)` 14/500/22、`.lg-mono` 13/400/20（SF Mono），**字距全部 `normal`**（与官方 nav 项一致）。官方 token 清单与「不许自定排版」的硬约束已记入事实基线。
 
 ### 修复 — 二维码尺寸与白框（2026-09-24，用户实测反馈）
 
-用户对比参考实现后反馈「别人做的二维码小而精致，你做的太大了」。根因两条：码体定成了 340px（`docs/RESEARCH.md` §5.10 的「约 340px」是把参考截图按 DPR 1 误读，按 DPR 2 重测应为约 190px），且白色底板用了 `display:flex; justify-content:center` 而**撑满整行**，视觉更笨重。
+用户对比参考实现后反馈「别人做的二维码小而精致，你做的太大了」。根因两条：码体定成了 340px（参考实现记录的「约 340px」是把参考截图按 DPR 1 误读，按 DPR 2 重测应为约 190px），且白色底板用了 `display:flex; justify-content:center` 而**撑满整行**，视觉更笨重。
 
-修正：码体 `190px × 190px`；白框改为 `width: fit-content` + `margin: auto` **贴合码体并居中**。实测（真实 DSH，browser-skill）：白框 212×212、码体 190×190、水平居中、卡片总高显著变短，且 `document.querySelectorAll('.lg-qr svg').length === 1` 仍成立。已同步修正 `docs/SPEC.md` F7 与 `docs/RESEARCH.md` §5.10 的尺寸记录。
+修正：码体 `190px × 190px`；白框改为 `width: fit-content` + `margin: auto` **贴合码体并居中**。实测（真实 DSH，browser-skill）：白框 212×212、码体 190×190、水平居中、卡片总高显著变短，且 `document.querySelectorAll('.lg-qr svg').length === 1` 仍成立。已同步修正规格与事实基线里的尺寸记录。
 
 ### 变更 — 设置页改为 3 个 tab + 单一二维码（2026-09-24，用户实测反馈）
 
@@ -310,12 +366,12 @@ SPEC §6.2 要求「非回环 + 无 TLS 必须显式确认」，此前只是**�
 
 - **分区内做 3 个 tab**：**扫码访问**（状态 + 地址 + 唯一二维码）/ **安全认证**（模式三选一 + 双密码 + 回环免密）/ **连接与证书**（端口 + 网卡 + TLS + CA 指纹）。锁定态下 tab 2/3 显示居中锁定卡片，tab 1 仍可读。
 - **任何时刻只渲染一个二维码，且它必须能用**：未设置访问密码 → **不画码**，只给「先设置访问密码」引导 + 跳转按钮（原先那个码扫了只会看到「尚未设置访问密码」）；已设密码未解锁 → **普通链接码** + 「解锁后可显示免密二维码」提示；已解锁 → **免密码**（扫码即登录），普通链接降级为 `复制链接`。
-- 同步更新 `docs/SPEC.md` F6（页面结构 / 锁定态 / 首次配置不得被锁定态挡住）与 F7（单一二维码状态表）、`docs/PLAN.md`（改版说明与验收方式）。
+- 同步更新页面结构（锁定态、首次配置不得被锁定态挡住）与单一二维码状态表，并记录改版说明与验收方式。
 - 真实验收（用户正在运行的 DSH，`patchReload: live` 热加载后刷新页面）：3 个 tab 均可切换；**`document.querySelectorAll('.lg-qr svg').length === 1`** 在解锁态与锁定态各验证一次；锁定后二维码由免密链接切换为普通链接并给出说明文案。截图存于 `.tmp/browser-proof/`（gitignored）。
 
 ### 修复 — 真实环境（用户正在运行的 dsh）暴露的两个缺陷（2026-09-24）
 
-- **安装形式错误导致插件未激活**：profile patch 里的扁平 `- id: dsh-lan-guard` + `name:` 行只会「按 id 覆盖已存在条目」，对不存在的 id **被静默忽略**（无报错、无监听、设置页无分区）。已改为 `insert:` 列表形式；用户的 profile 设了 `dsh.profile.patchReload: "live"`，因此修正后**热加载进正在运行的 dsh（PID 不变、3080 会话不受影响），无需重启**。事实已写入 `docs/RESEARCH.md` §4.2.11。
+- **安装形式错误导致插件未激活**：profile patch 里的扁平 `- id: dsh-lan-guard` + `name:` 行只会「按 id 覆盖已存在条目」，对不存在的 id **被静默忽略**（无报错、无监听、设置页无分区）。已改为 `insert:` 列表形式；用户的 profile 设了 `dsh.profile.patchReload: "live"`，因此修正后**热加载进正在运行的 dsh（PID 不变、3080 会话不受影响），无需重启**。事实已记入事实基线。
 - **首次安装死锁**：设置页初始为锁定态，而解锁需要密码——但此时**尚无任何密码**，于是「设置访问密码」的表单被锁在锁定卡片后面，永远到不了（真实环境复现）。两处修正：① 客户端在**未设置任何密码**时不进入锁定态（此时门禁本就拒绝一切设备，没有任何东西可保护）；② 服务端在**首次**设置访问密码成功后，顺带解锁本次管理会话，避免「刚设完就被要求再输一遍」。
 - 真实验证（用户正在运行的 dsh）：插件热加载后 `*:3445` 监听、证书生成于 `~/.dsh/profiles/web/data/dsh-lan-guard/tls/`（私钥 600 / 证书 644）、设置页出现「局域网访问」分区与**可扫描二维码**、`--cacert` 对局域网 IP `https://10.0.0.20:3445/` 的**证书链校验通过**、非回环来源（模拟手机）被门禁拒绝为 `403 尚未设置访问密码`（**无暴露窗口**）。
 
@@ -324,7 +380,7 @@ SPEC §6.2 要求「非回环 + 无 TLS 必须显式确认」，此前只是**�
 > 这两条是**源码检查与 curl 测试都发现不了**的：前者是客户端状态刷新时序，后者是 CSS 变量名静默失效。
 
 - **解锁后页面不刷新**：`write()` 原本用 POST 响应里的快照更新界面，而该快照是在响应 `Set-Cookie` 落库**之前**计算的，因此「管理员解锁」成功后页面仍显示锁定态、「重新锁定」后仍显示已解锁。现改为写操作后**重新 GET** 一次快照。
-- **设置页用了一批不存在的官方 CSS 变量名**：`--dsw-alias-bg-elevated` / `-text-primary` / `-bg-secondary` / `-border-subtle` / `-bg-success` / `-bg-info` / `-bg-brand-weak` 等在 DSH 0.1.7 中**都不存在**，`getComputedStyle` 取空 → 样式静默退回硬编码回退值 → **暗色主题下白卡 + 近白文字**（与 `docs/RESEARCH.md` §5.6 记录的 dsh-mobile 事故同类）。已按实测出的真实变量名（`bg-layer-*` / `label-*` / `border-l*` / `state-*-primary|tertiary` / `button-primary-fill` / `label-primary-foreground`）重写设置页 CSS，并保留回退值；真实变量清单已写入 `docs/RESEARCH.md` §4.2.10。
+- **设置页用了一批不存在的官方 CSS 变量名**：`--dsw-alias-bg-elevated` / `-text-primary` / `-bg-secondary` / `-border-subtle` / `-bg-success` / `-bg-info` / `-bg-brand-weak` 等在 DSH 0.1.7 中**都不存在**，`getComputedStyle` 取空 → 样式静默退回硬编码回退值 → **暗色主题下白卡 + 近白文字**（与 dsh-mobile 记录的事故同类）。已按实测出的真实变量名（`bg-layer-*` / `label-*` / `border-l*` / `state-*-primary|tertiary` / `button-primary-fill` / `label-primary-foreground`）重写设置页 CSS，并保留回退值；真实变量清单已记入事实基线。
 - 复验：浏览器实测暗色（卡片 `#232324` + 文字 `#f9fafb` + 深绿提示条）与浅色（白卡 + 近黑文字）均正常；设置页分区、状态胶囊、安全提示条、访问地址、`复制链接`/`隐藏二维码`、**二维码真实渲染**、免密链接与二维码、三选一大卡片、密码不回显、网卡下拉、CA 指纹、锁定态与解锁横幅全部可见且可用。截图存于 `.tmp/browser-proof/`（gitignored）。
 
 ### 修复 — P2 实施中发现并修正的真实缺陷
@@ -338,7 +394,7 @@ SPEC §6.2 要求「非回环 + 无 TLS 必须显式确认」，此前只是**�
 
 ### 实现 — P1 骨架 + 最小反代（2026-09-24）
 
-- **工程骨架**（`package.json` / `tsconfig.json` / `tsconfig.tests.json` / `tsdown.config.ts` / `vitest.config.ts` / `cordis.patch.yml`）：TypeScript + pnpm + tsdown + vitest，照 `docs/RESEARCH.md` §5.9 的 dsh-quick-replies 模板；`dsh.engines.dsh` 为 `>=0.1.7-rc.1 <0.2.0`，peer 范围覆盖 `0.1.7-rc.1`。
+- **工程骨架**（`package.json` / `tsconfig.json` / `tsconfig.tests.json` / `tsdown.config.ts` / `vitest.config.ts` / `cordis.patch.yml`）：TypeScript + pnpm + tsdown + vitest，照 dsh-quick-replies 的现成模板；`dsh.engines.dsh` 为 `>=0.1.7-rc.1 <0.2.0`，peer 范围覆盖 `0.1.7-rc.1`。
 - **`src/config.ts`**：非敏感配置的 Schemastery `Config`（SPEC §5 全字段）+ 语义校验。被拒的非法值：缺 `dataDir`、非 IPv4 字面量的 `listenHost`、非 loopback 或非 `http:` 的 `upstreamOrigin`、`auth.enabled: false` 配非 loopback 监听、越界端口、未知 `mode` / `adminPolicy` / `tls.mode`、非正会话时长、`tls.mode: provided` 缺证书文件。
 - **`src/headers.ts`**：Host/Origin 改写为上游 authority、注入 loopback cookie、剔除 hop-by-hop 头、响应侧丢弃上游 `set-cookie`、WS 101 只放行 5 个白名单头、请求目标规范化（裸 origin → `/`）。
 - **`src/upstream-auth.ts`**：路线 A 的 token→cookie 交换与缓存（303 + `Set-Cookie` + `Location: ./`），并发去重、按 launch token 变化与过期前 60s 续换、401 后失效重换；token 与 cookie 只在内存，日志只记 cookie 名。
@@ -348,20 +404,14 @@ SPEC §6.2 要求「非回环 + 无 TLS 必须显式确认」，此前只是**�
 
 ### 变更 — P1（2026-09-24）
 
-- **新增 peer 依赖 `@deepseek-ai/schemastery`**（用户当次批准）：F6「路线乙」要求把非敏感开关声明为插件 `Config`（含 `.volatile()`），这必须用 Schemastery；已同步补进 `docs/SPEC.md` §4 的 peer 依赖表。
-- **新增 `src/log.ts`**（`docs/SPEC.md` §4 模块清单之外的结构调整）：只放一个窄化的 `LanGuardLogger` 接口与 `noopLogger`，让宿主侧模块可在测试中用桩替换，并固定「任何日志调用都不得传入凭据」这条约束。SPEC §4 说明模块划分是建议性的。
+- **新增 peer 依赖 `@deepseek-ai/schemastery`**（用户当次批准）：F6「路线乙」要求把非敏感开关声明为插件 `Config`（含 `.volatile()`），这必须用 Schemastery；已同步补进 peer 依赖表。
+- **新增 `src/log.ts`**（模块清单之外的结构调整）：只放一个窄化的 `LanGuardLogger` 接口与 `noopLogger`，让宿主侧模块可在测试中用桩替换，并固定「任何日志调用都不得传入凭据」这条约束。模块划分是建议性的。
 - **`tsconfig.json` 的 `types` 为 `["node"]`**（模板为 `[]`）：本插件宿主侧必须用 `node:http` 等内置模块，没有 Node 类型无法通过类型检查；测试 tsconfig 继承同一设置。
-- **新增事实回填 `docs/RESEARCH.md` §4.2**：`DSH_HOME` 覆盖、`--patch` 叠加层、`webServer` 注册签名、token 交换的精确语义、`/api` 栅栏细节、`evaluatePluginCompatibility` 只看 `@deepseek-ai/dsh*` peer、以及「loopback 上 `/plugins/*` 与 `/assets/*` 不受浏览器 cookie 栅栏保护」这一条（P2 门禁必须覆盖代理端口上的**全部**路径）。
+- **新增事实回填**：`DSH_HOME` 覆盖、`--patch` 叠加层、`webServer` 注册签名、token 交换的精确语义、`/api` 栅栏细节、`evaluatePluginCompatibility` 只看 `@deepseek-ai/dsh*` peer、以及「loopback 上 `/plugins/*` 与 `/assets/*` 不受浏览器 cookie 栅栏保护」这一条（P2 门禁必须覆盖代理端口上的**全部**路径）。
 
 ### 新增
 
-- 项目文档定稿：
-  - `AGENTS.md` —— AI 协作总纲（职责、红线、停止点、工作流、漂移自检）
-  - `docs/GUARDRAILS.md` —— 权限边界与职责矩阵
-  - `docs/SPEC.md` —— 技术规格与未决事项
-  - `docs/PLAN.md` —— 分阶段实施计划与验收标准
-  - `docs/RESEARCH.md` —— 已核实的 DSH 事实基线
-  - `docs/RELEASE.md` —— 发布流程与授权级别
+- 项目文档定稿（AI 协作总纲、权限边界、技术规格、实施计划、事实基线、发布流程）。
 - `README.md` / `README.zh.md` / `LICENSE` / `.gitignore`
 
 ### 变更（2026-09-24）
@@ -369,27 +419,26 @@ SPEC §6.2 要求「非回环 + 无 TLS 必须显式确认」，此前只是**�
 - **门禁规格定稿**：参考 dsh-bridge 的配置模型——`enabled` / `mode` / `adminPolicy` / `adminProtection` / 双密码（访问密码 + 独立管理密码）/ `secretToken` / `allowLoopback`，PBKDF2-SHA256 迭代 600000 带算法前缀，普通会话落盘、管理员会话仅内存。
   - `scope` 字段（`all` / `public_only` / `lan_only`）**省略**：本项目只有局域网一种通道。
   - **敏感数据改存插件私有 dataDir**（权限 600），不进 config——profile patch 是文本文件，可能被分享或提交。
-  - 见 `docs/SPEC.md` F3、`docs/RESEARCH.md` §5.5。
-- **设置 UI 定稿**：要做，参考 dsh-notify 的模式——注册官方 `settings.section` seat，纯 `React.createElement`（不引入 JSX），内联 CSS 使用官方 `--dsw-alias-*` 变量，覆盖触屏与窄屏两个断点；管理端点用 `connection.requestRejection()` 复用 DSH 原生栅栏。见 `docs/SPEC.md` F6、`docs/RESEARCH.md` §5.6。
+- **设置 UI 定稿**：要做，参考 dsh-notify 的模式——注册官方 `settings.section` seat，纯 `React.createElement`（不引入 JSX），内联 CSS 使用官方 `--dsw-alias-*` 变量，覆盖触屏与窄屏两个断点；管理端点用 `connection.requestRejection()` 复用 DSH 原生栅栏。
 - **实施计划调整**：P2 由「门禁」扩为「门禁 + 设置 UI」；原 P4-b「控制面板 UI」并入 P2；P1+P2+P3 预计约 1000–1350 行。
 - **明确两套认证面**：设置页属**管理面**（DSH 原生栅栏），代理端口属**访客面**（本项目密码门禁）——能打开设置页 ≠ 能通过代理访问。
-- **补充官方设置机制的事实与约束**（`docs/RESEARCH.md` §4.1）：DSH 0.1.7 移除了 `ctx.settings.register()`，改为 Config-derived forms——表单命名空间即 Loader 条目 id，`ctx.settings.describe()` 投影条目 `Config` 的 volatile 字段，客户端经 `ctx.configForms.get(entryId)` 读取，写入落 `cordis.patch.yml` 的 `<entry-id>.config`。
+- **补充官方设置机制的事实与约束**：DSH 0.1.7 移除了 `ctx.settings.register()`，改为 Config-derived forms——表单命名空间即 Loader 条目 id，`ctx.settings.describe()` 投影条目 `Config` 的 volatile 字段，客户端经 `ctx.configForms.get(entryId)` 读取，写入落 `cordis.patch.yml` 的 `<entry-id>.config`。
   - **关键约束**：官方表单在**非回环页面**（手机通过代理访问时）`mode` 被固定为 `memory`，终态 `unavailable` 且**永不写入**。
   - 由此在 F6 增设「技术路线」待确认项（甲：纯自定义端点 / 乙：混合，建议乙），并记入 SPEC §8 第 4b 项。
   - 参考实现：`dsh-quick-replies`（官方 configForms + 局域网直连兜底）与 `dsh-notify`（自定义 `/config` 端点），两者机制不同但都在本机运行。
 
 ### 复查（2026-09-24，dsh-mobile 0.3.14 → 0.4.5）
 
-- **修正全部行号**：dsh-mobile 从 0.3.14 升到 0.4.5，代码量显著增长（`gateway.ts` 2353→2950、`plugin.ts` 831→1298、`mobile-layout.ts` 482→638），`docs/RESEARCH.md` 中所有引用行号已位移并逐个重新核对：证书实现 `managed-setup.ts` **217**（`assertMatchingCa`）/ **275**（`generate`）/ **369**（`refreshManagedServerCertificate`）、`cli.ts:110`、`config.ts:219`/`:256`；layout `mobile-layout.ts` **89**/`apply` **569**/`panelInfo` **586**。§5.1 已加注「行号对应 v0.4.5，引用前请重新核对」。
+- **修正全部行号**：dsh-mobile 从 0.3.14 升到 0.4.5，代码量显著增长（`gateway.ts` 2353→2950、`plugin.ts` 831→1298、`mobile-layout.ts` 482→638），事实基线中所有引用行号已位移并逐个重新核对：证书实现 `managed-setup.ts` **217**（`assertMatchingCa`）/ **275**（`generate`）/ **369**（`refreshManagedServerCertificate`）、`cli.ts:110`、`config.ts:219`/`:256`；layout `mobile-layout.ts` **89**/`apply` **569**/`panelInfo` **586**。§5.1 已加注「行号对应 v0.4.5，引用前请重新核对」。
 - **修正过时表述**：§8 原写「dsh-mobile 的 peer 止于 `^0.1.3-0`，会被 0.1.7 预检拦下」——v0.4.5 已放宽到 `^0.1.7-0`。
-- **新增 `docs/RESEARCH.md` §5.7**：dsh-mobile v0.4.5 的四条实战教训——① WS upgrade 必须在异步鉴权**之前**挂 socket `error` handler（否则重连期断开会抛未处理错误）；② 失败的静态资源 404 不能按 `immutable` 缓存；③ 端口占用约定（`3080` DSH / `3443` 其局域网网关 / `3444` 其自带反代）；④ 它自 v0.4.2 起自带的反代 provider 与本项目的定位差异。
-- **新增 `docs/RESEARCH.md` §7.1**：DSH 0.1.6/0.1.7 的**文档相对路由**（外壳 index 带 `<base href="./">`，浏览器侧用 `api/x`、`plugins/x`，服务端路由键仍为绝对路径），以及对本项目的四条影响（根路径不受影响 / 必须做尾斜杠规范化 / 不做子路径挂载 / 保持透明不改写资源 URL）。
+- **补充 dsh-mobile v0.4.5 的实战教训**：dsh-mobile v0.4.5 的四条实战教训——① WS upgrade 必须在异步鉴权**之前**挂 socket `error` handler（否则重连期断开会抛未处理错误）；② 失败的静态资源 404 不能按 `immutable` 缓存；③ 端口占用约定（`3080` DSH / `3443` 其局域网网关 / `3444` 其自带反代）；④ 它自 v0.4.2 起自带的反代 provider 与本项目的定位差异。
+- **补充文档相对路由的事实**：DSH 0.1.6/0.1.7 的**文档相对路由**（外壳 index 带 `<base href="./">`，浏览器侧用 `api/x`、`plugins/x`，服务端路由键仍为绝对路径），以及对本项目的四条影响（根路径不受影响 / 必须做尾斜杠规范化 / 不做子路径挂载 / 保持透明不改写资源 URL）。
 - **SPEC 相应收紧**：默认端口 `3443` → **`3445`**（避开 dsh-mobile 占用的 3443/3444）；F1 增加「只支持根路径挂载、尾部斜杠规范化、不改写资源 URL、缓存头只对 200 加 immutable」；F3 增加「异步鉴权之前必须先挂 socket `error` handler」。
 - **PLAN 相应补充**：P1 验收增加「插件 bundle（含文档相对形式）能加载」「尾斜杠规范化」「资源 URL 未被改写」三条；P2 验收增加「鉴权挂起期间断开 socket 不崩进程」。
 
 ### 拍板（2026-09-24：7 项未决事项 + 二维码）
 
-- **7 项未决事项全部拍板**，`docs/SPEC.md` §8 由「未决事项」改为「**已确认的决策**」：
+- **7 项未决事项全部拍板**，规格的「未决事项」改为「**已确认的决策**」：
 
   | # | 决定 |
   | --- | --- |
@@ -409,9 +458,9 @@ SPEC §6.2 要求「非回环 + 无 TLS 必须显式确认」，此前只是**�
 
 ### 视觉参考定稿（2026-09-24，用户提供 5 张 dsh-bridge 实机截图）
 
-- **提取视觉语言**并写入 `docs/RESEARCH.md` §5.10：卡片分组（白底 / 1px 浅灰边框 / 圆角约 14px / 内边距约 20px / 间距 16–20px）、状态胶囊（绿=运行中、黑=已启用）、**大卡片选择器**（整卡可点、选中 2px 主色边框 + 浅主色背景）、锁定态、解锁横幅、等宽 URL 框、二维码白底卡片、内容宽度约 790px。
-- **`docs/SPEC.md` F6 补充页面结构与视觉规范**：单分区四块——① 状态卡片 ② 安全认证卡片 ③ 连接与证书卡片 ④ 锁定态；并明确**不照搬** dsh-bridge 的横向 tab、版本升级提示、运维监控看板、配置导入导出、服务重启按钮（超出本项目范围）。
-- **`docs/SPEC.md` F7 由「待参考图」改为定稿**：补上二维码区块的六步布局——安全提示条 → 等宽 URL 框 → 并排按钮（复制链接 / 显示·隐藏二维码）→ 二维码（**默认展开**）→「请在私密环境下使用」→ PWA「添加到主屏幕」引导文案。
+- **提取视觉语言**：卡片分组（白底 / 1px 浅灰边框 / 圆角约 14px / 内边距约 20px / 间距 16–20px）、状态胶囊（绿=运行中、黑=已启用）、**大卡片选择器**（整卡可点、选中 2px 主色边框 + 浅主色背景）、锁定态、解锁横幅、等宽 URL 框、二维码白底卡片、内容宽度约 790px。
+- **补充页面结构与视觉规范**：单分区四块——① 状态卡片 ② 安全认证卡片 ③ 连接与证书卡片 ④ 锁定态；并明确**不照搬** dsh-bridge 的横向 tab、版本升级提示、运维监控看板、配置导入导出、服务重启按钮（超出本项目范围）。
+- **二维码区块由「待参考图」改为定稿**：补上二维码区块的六步布局——安全提示条 → 等宽 URL 框 → 并排按钮（复制链接 / 显示·隐藏二维码）→ 二维码（**默认展开**）→「请在私密环境下使用」→ PWA「添加到主屏幕」引导文案。
 - **新增一条硬约束**：免密 token **必须用 `?auth=`，绝不能用 `?token=`**——后者是 DSH 自身的 launch token 参数，代理需把它原样转发给上游换 cookie，同名会互相覆盖。代理识别 `?auth=` 后校验、下发自己的会话 cookie、**302 到去掉 token 的干净 URL**。
 - 明确手机端**不提供**「分享给其他设备」入口，避免含 token 的链接二次扩散；需要分享时由本机设置页复制。
 
@@ -421,10 +470,10 @@ SPEC §6.2 要求「非回环 + 无 TLS 必须显式确认」，此前只是**�
 - P0 仍把「§8 其余五项」标成未完成。已改为全部拍板；P0 仍不退出，直到用户明确说「开始 P1」。
 - F2 仍写「上游认证待确认」。已改为路线 A 已定，路线 B 不采用。
 - 配置示例把 `listenHost` 写成 `0.0.0.0`，与「默认不对外监听」矛盾。示例默认改回 `127.0.0.1`，对外必须显式修改。
-- README（中英）和 `AGENTS.md` / `GUARDRAILS.md` 仍把 TLS 写成「可选」。已改为默认开启、可关闭并提示影响；README 补上二维码。
+- README（中英）与协作文档仍把 TLS 写成「可选」。已改为默认开启、可关闭并提示影响；README 补上二维码。
 - F6 的「技术路线」「挂载位置」与 F6 同级，目录上像两条独立功能。已降为 F6 的子节。
 
 ### 说明
 
-- **尚无实现代码。** 实施从 `docs/PLAN.md` 的 P1 阶段开始，需用户明确确认。
-- 发布授权当前为 L0（保守，不发布）。见 `docs/RELEASE.md`。
+- **尚无实现代码。** 实施从 P1 阶段开始，需用户明确确认。
+- 发布授权当前为 L0（保守，不发布）。

@@ -3,7 +3,7 @@
  *
  * Everything here lands in a profile patch file (`cordis.patch.yml`), which is
  * plain text a user may share or commit, so NO credential ever belongs in this
- * schema (docs/SPEC.md F3 "存储位置" table). Passwords, hashes and the
+ * schema. Passwords, hashes and the
  * passwordless-link token live in the plugin's private dataDir instead.
  *
  * This module owns two things:
@@ -14,18 +14,22 @@
  *   set rather than an internal one.
  * - `parseConfig`: the semantic checks Schemastery cannot express (loopback
  *   upstream, literal listen address, the `auth.enabled === false` bind rule,
- *   the required `dataDir`). Invalid values must be REJECTED — a silently
- *   widened default is the failure mode this module exists to prevent.
+ *   and the resolution of `dataDir`, whose default is derived from the active
+ *   profile rather than demanded from the operator). Invalid values must be
+ *   REJECTED — a silently widened default is the failure mode this module
+ *   exists to prevent.
  */
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 import z from '@deepseek-ai/schemastery'
 
-/** Gate mode (docs/SPEC.md F3). `scope` is deliberately absent — this project has one LAN channel. */
+/** Gate mode. `scope` is deliberately absent — this project has one LAN channel. */
 export type AuthMode = 'password' | 'token' | 'token_and_password'
 
-/** Who may reach the management surface (docs/SPEC.md F3). */
+/** Who may reach the management surface. */
 export type AdminPolicy = 'password_unlock' | 'local_only' | 'open'
 
-/** Certificate source (docs/SPEC.md F4). */
+/** Certificate source. */
 export type TlsMode = 'self-signed' | 'provided' | 'off'
 
 /** The `auth` block of the config. */
@@ -69,12 +73,12 @@ export interface TlsConfigShape {
   /**
    * Explicit acknowledgement required to serve plain HTTP on a NON-loopback
    * listener (P4-e). Defaults to false: the gate password and the upstream
-   * cookie would travel the LAN in clear text (docs/SPEC.md §6.2).
+   * cookie would travel the LAN in clear text.
    */
   allowInsecureLan: boolean
 }
 
-/** The full non-sensitive config shape (docs/SPEC.md §5). */
+/** The full non-sensitive config shape. */
 export interface MdnsConfigShape {
   /** Whether to advertise the console over mDNS/DNS-SD (off by default). */
   enabled: boolean
@@ -89,9 +93,9 @@ export interface LanGuardConfigShape {
   listenPort: number
   /** The loopback origin requests are forwarded to. */
   upstreamOrigin: string
-  /** Optional NIC selector (docs/SPEC.md F5). */
+  /** Optional NIC selector. */
   networkInterface: string | null
-  /** Private directory for sensitive state; required, never guessed. */
+  /** Private directory for sensitive state; explicit value wins, otherwise derived from the profile. */
   dataDir: string | null
   /** Visitor-side gate configuration. */
   auth: AuthConfigShape
@@ -101,8 +105,16 @@ export interface LanGuardConfigShape {
   mdns: MdnsConfigShape
 }
 
-/** Default bind address: loopback only, so a fresh install never exposes anything. */
-export const DEFAULT_LISTEN_HOST = '127.0.0.1'
+/**
+ * Default bind address: every interface, because this plugin's whole purpose is
+ * LAN access and a fresh install must work after ONE restart.
+ *
+ * The exposure is gated, not silent: `auth.enabled` defaults to true and a
+ * fresh install has NO access password, so the gate refuses every device until
+ * one is set; TLS defaults to self-signed, so nothing travels in clear. The
+ * settings page offers a 「仅本机」 switch for anyone who wants loopback only.
+ */
+export const DEFAULT_LISTEN_HOST = '0.0.0.0'
 /**
  * Default proxy port: DSH's own port + 1, which is the mental model the user
  * asked for ("3081, 3082, 3083 … take the first free one"). It stays clear of
@@ -119,14 +131,19 @@ export const DEFAULT_UPSTREAM_ORIGIN = 'http://127.0.0.1:3080'
  * 0.1.7 — the Loader entry id is the form namespace, so this object must stay
  * the documented field set.
  *
- * The five NON-SENSITIVE switches (docs/SPEC.md F6, PLAN §5 工作项 9) are
- * `.volatile()`: an edit commits into the running references and emits a
- * volatile update instead of remounting the plugin, and the host `settings`
- * service refuses to write any path that is not volatile
- * (docs/RESEARCH.md §4.1). A volatile field's runtime value is a stable
- * reference with `get()`, not the bare value — {@link parseConfig} unwraps it,
- * and {@link liveSwitches} keeps the reference so later edits are visible
- * without a restart.
+ * The NON-SENSITIVE switches  are `.volatile()`: an edit
+ * commits into the running references and emits a volatile update instead of
+ * remounting the plugin, and the host `settings` service refuses to write any
+ * path that is not volatile. A volatile field's runtime
+ * value is a stable reference with `get()`, not the bare value —
+ * {@link parseConfig} unwraps it, and {@link liveSwitches} keeps the reference
+ * so later edits are visible without a restart.
+ *
+ * `listenHost` is volatile too, and deliberately so: the settings page offers a
+ * 「仅本机 / 局域网」 switch, and a switch the operator cannot write is worse
+ * than no switch. The BIND still happens once at startup from the resolved
+ * value, so the switch takes effect on the next dsh restart — the same contract
+ * `listenPort` already has.
  *
  * NOTE on the nullable fields: Schemastery treats a `null` default as "no
  * fallback" (`if (isNullable(fallback)) return [data]`), so a field declared
@@ -137,10 +154,13 @@ export const DEFAULT_UPSTREAM_ORIGIN = 'http://127.0.0.1:3080'
  */
 export const Config: z<LanGuardConfigShape, Record<string, unknown>> = z.object({
   enabled: z.boolean().default(true).volatile(),
-  listenHost: z.string().default(DEFAULT_LISTEN_HOST),
+  listenHost: z.string().default(DEFAULT_LISTEN_HOST).volatile(),
   listenPort: z.natural().max(65535).default(DEFAULT_LISTEN_PORT).volatile(),
   upstreamOrigin: z.string().default(DEFAULT_UPSTREAM_ORIGIN),
   networkInterface: z.string().default('').volatile(),
+  // Optional on purpose: omitted means "derive <profileDir>/data/dsh-lan-guard"
+  // (see resolveDataDir), so a fresh install needs no hand-written config. An
+  // explicit value — including one using `~` — still wins.
   dataDir: z.string().default(''),
   auth: z.object({
     // NOT volatile on purpose (PLAN §5 工作项 9 lists the writable switches):
@@ -181,6 +201,8 @@ export interface LiveSwitches {
   networkInterface(): string | null
   /** Configured listen port (applies on the next start). */
   listenPort(): number
+  /** Configured bind address (applies on the next start). */
+  listenHost(): string
   /** Visitor credential mode. */
   mode(): AuthMode
   /** Management unlock policy. */
@@ -215,7 +237,7 @@ function readField<T>(value: unknown, fallback: T): T {
  *
  * @param rawConfig - the config as `apply` received it.
  * @param resolved - the normalized config from {@link parseConfig}.
- * @returns accessors for the five switches.
+ * @returns accessors for the writable switches.
  */
 export function liveSwitches(rawConfig: unknown, resolved: LanGuardConfigShape): LiveSwitches {
   const root = (typeof rawConfig === 'object' && rawConfig !== null ? rawConfig : {}) as Record<string, unknown>
@@ -224,6 +246,7 @@ export function liveSwitches(rawConfig: unknown, resolved: LanGuardConfigShape):
     enabled: () => readField(root.enabled, resolved.enabled),
     networkInterface: () => emptyToNull(readField(root.networkInterface, '')),
     listenPort: () => readField(root.listenPort, resolved.listenPort),
+    listenHost: () => readField(root.listenHost, resolved.listenHost),
     mode: () => readField(root.auth === undefined ? undefined : auth.mode, resolved.auth.mode),
     adminPolicy: () => readField(root.auth === undefined ? undefined : auth.adminPolicy, resolved.auth.adminPolicy),
     adminProtection: () => readField(
@@ -245,6 +268,7 @@ export function staticSwitches(config: LanGuardConfigShape): LiveSwitches {
     enabled: () => config.enabled,
     networkInterface: () => config.networkInterface,
     listenPort: () => config.listenPort,
+    listenHost: () => config.listenHost,
     mode: () => config.auth.mode,
     adminPolicy: () => config.auth.adminPolicy,
     adminProtection: () => config.auth.adminProtection,
@@ -303,13 +327,63 @@ function emptyToNull(value: string | null | undefined): string | null {
   return trimmed === '' ? null : trimmed
 }
 
+/** Directory this plugin owns under the active profile's `data` directory. */
+export const DATA_DIR_NAME = 'dsh-lan-guard'
+
+/** Where a resolved private-state directory came from. */
+export type DataDirSource = 'config' | 'profile'
+
+/** A resolved private-state directory plus its provenance. */
+export interface DataDirResolution {
+  /** Directory holding secrets, devices and sessions. */
+  dir: string
+  /** `config` for an explicit `dataDir`, `profile` for the derived default. */
+  source: DataDirSource
+}
+
 /**
- * Apply defaults, then enforce every constraint Schemastery cannot express.
+ * Expand a leading `~` against the OS home.
  *
- * @param input - the raw Loader config (or `undefined` for a bare `insert` row).
- * @returns the normalized, fully defaulted config.
- * @throws LanGuardConfigError when a value would make the listener unsafe.
+ * Local on purpose: `@deepseek-ai/dsh-home-paths` would be a new runtime
+ * dependency for three lines.
+ *
+ * @param value - a configured path that may start with `~`.
+ * @returns the expanded path, or the value unchanged.
  */
+export function expandTilde(value: string): string {
+  if (value === '~') return homedir()
+  if (value.startsWith('~/') || value.startsWith('~\\')) return join(homedir(), value.slice(2))
+  return value
+}
+
+/**
+ * Resolve the private-state directory.
+ *
+ * Precedence:
+ *
+ * 1. an explicit `dataDir` from this entry's config — the documented override;
+ * 2. `<profileDir>/data/dsh-lan-guard`, derived from DSH's own `profileContext`.
+ *
+ * The plugin still refuses to guess from its OWN module location: a profile may
+ * link the package and Node resolves symlinks, so `import.meta.url` can point at
+ * a checkout rather than the profile. A host that can
+ * name neither source gets an error instead of a silently shared directory.
+ *
+ * @param rawConfig - the raw Loader config (a volatile reference is unwrapped).
+ * @param profileDir - the active profile directory, when the host can name it.
+ * @returns the resolution, or `null` when neither source is available.
+ */
+export function resolveDataDir(rawConfig: unknown, profileDir?: string | undefined): DataDirResolution | null {
+  const root = (typeof rawConfig === 'object' && rawConfig !== null ? rawConfig : {}) as Record<string, unknown>
+  const raw = root.dataDir
+  const value = isVolatileLike(raw) ? raw.get() : raw
+  const explicit = typeof value === 'string' ? emptyToNull(value) : null
+  if (explicit !== null) return { dir: expandTilde(explicit), source: 'config' }
+  const derived = emptyToNull(profileDir)
+  if (derived === null) return null
+  return { dir: join(expandTilde(derived), 'data', DATA_DIR_NAME), source: 'profile' }
+}
+
 /**
  * Unwrap the volatile references of an already-resolved config.
  *
@@ -326,7 +400,7 @@ function unwrapVolatileInput(input: unknown): unknown {
   if (typeof input !== 'object' || input === null || Array.isArray(input)) return input
   const source = input as Record<string, unknown>
   const result: Record<string, unknown> = { ...source }
-  for (const key of ['enabled', 'networkInterface', 'listenPort']) {
+  for (const key of ['enabled', 'networkInterface', 'listenPort', 'listenHost']) {
     const value = result[key]
     if (isVolatileLike(value)) result[key] = (value as { get(): unknown }).get()
   }
@@ -343,7 +417,15 @@ function unwrapVolatileInput(input: unknown): unknown {
   return result
 }
 
-export function parseConfig(input: unknown): LanGuardConfigShape {
+/**
+ * Apply defaults, then enforce every constraint Schemastery cannot express.
+ *
+ * @param input - the raw Loader config (or `undefined` for a bare `insert` row).
+ * @param profileDir - the active profile directory; supplies the derived `dataDir`.
+ * @returns the normalized, fully defaulted config.
+ * @throws LanGuardConfigError when a value would make the listener unsafe.
+ */
+export function parseConfig(input: unknown, profileDir?: string | undefined): LanGuardConfigShape {
   let resolved: Record<string, unknown>
   try {
     // Schemastery applies the documented defaults and rejects wrong types; the
@@ -356,16 +438,20 @@ export function parseConfig(input: unknown): LanGuardConfigShape {
   const rawAuth = (resolved.auth ?? {}) as Record<string, unknown>
   const rawTls = (resolved.tls ?? {}) as Record<string, unknown>
   const rawMdns = (resolved.mdns ?? {}) as Record<string, unknown>
+  // The schema has already rejected a non-string `dataDir`, so this raw read
+  // only has to tolerate absence. It runs on `input` (not `resolved`) because
+  // the derived default is a resolution POLICY, not a schema default.
+  const dataDir = resolveDataDir(input, profileDir)
 
   const config: LanGuardConfigShape = {
-    // The five switches are volatile references at runtime; unwrap them for the
-    // plain resolved view. `liveSwitches()` keeps the references for liveness.
+    // The writable switches are volatile references at runtime; unwrap them for
+    // the plain resolved view. `liveSwitches()` keeps the references for liveness.
     enabled: readField(resolved.enabled, true),
     listenHost: readField(resolved.listenHost, DEFAULT_LISTEN_HOST),
     listenPort: readField(resolved.listenPort, DEFAULT_LISTEN_PORT),
     upstreamOrigin: readField(resolved.upstreamOrigin, DEFAULT_UPSTREAM_ORIGIN),
     networkInterface: emptyToNull(readField(resolved.networkInterface, '')),
-    dataDir: emptyToNull(readField(resolved.dataDir, '')),
+    dataDir: dataDir?.dir ?? null,
     auth: {
       enabled: readField(rawAuth.enabled, true),
       mode: readField(rawAuth.mode, 'token_and_password'),
@@ -390,11 +476,12 @@ export function parseConfig(input: unknown): LanGuardConfigShape {
     mdns: { enabled: readField(rawMdns.enabled, false) },
   }
 
-  const dataDir = config.dataDir
-  if (dataDir === null || dataDir.trim() === '') {
+  const dataDirPath = config.dataDir
+  if (dataDirPath === null || dataDirPath.trim() === '') {
     throw new LanGuardConfigError(
-      'dsh-lan-guard: dataDir is not set; the plugin never guesses a profile path — '
-      + 'set it in this entry\'s config (cordis.patch.yml), e.g. dataDir: ~/.dsh/dsh-lan-guard',
+      'dsh-lan-guard: no dataDir could be resolved: this entry configures none and the host exposes no '
+      + "profile directory. Set it in this entry's config (cordis.patch.yml), "
+      + 'e.g. dataDir: ~/.dsh/profiles/web/data/dsh-lan-guard',
     )
   }
 
@@ -413,7 +500,7 @@ export function parseConfig(input: unknown): LanGuardConfigShape {
   }
 
   if (new URL(config.upstreamOrigin).protocol !== 'http:') {
-    // DSH's own web server carries no TLS (docs/RESEARCH.md §2.2), and the
+    // DSH's own web server carries no TLS, and the
     // proxy forwards plain HTTP upstream only.
     throw new LanGuardConfigError(
       `dsh-lan-guard: upstreamOrigin ${JSON.stringify(config.upstreamOrigin)} must use http:// — `
@@ -435,8 +522,7 @@ export function parseConfig(input: unknown): LanGuardConfigShape {
     throw new LanGuardConfigError(
       `dsh-lan-guard: listenHost ${JSON.stringify(config.listenHost)} with tls.mode "off" would serve the `
       + 'gate password and the upstream session over plain HTTP on the network. Enable TLS (the default '
-      + 'self-signed mode), bind 127.0.0.1, or set tls.allowInsecureLan: true to accept that risk explicitly '
-      + '(docs/SPEC.md §6.2).',
+      + 'self-signed mode), bind 127.0.0.1, or set tls.allowInsecureLan: true to accept that risk explicitly.',
     )
   }
 

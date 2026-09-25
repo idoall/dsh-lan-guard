@@ -1,8 +1,8 @@
 /**
- * dsh-lan-guard — the self-signed certificate authority (docs/SPEC.md F4).
+ * dsh-lan-guard — the self-signed certificate authority.
  *
  * The CA is the long-lived identity a phone trusts once. Parameters follow the
- * researched dsh-mobile set (docs/RESEARCH.md §5.1): EC P-256, SHA-256,
+ * researched dsh-mobile set: EC P-256, SHA-256,
  * `basicConstraints: cA: true`, `keyUsage` with `keyCertSign`.
  *
  * The subject common name is a user decision (2026-09-24): "DSH LAN Guard CA".
@@ -111,7 +111,7 @@ export async function loadCa(certPath: string, keyPath: string): Promise<CaMater
  * Load the CA from disk, generating it once when missing.
  *
  * The CA identity is retained across restarts on purpose: replacing it would
- * force every phone to re-trust a new CA (docs/RESEARCH.md §5.1).
+ * force every phone to re-trust a new CA.
  *
  * @param certPath - where the CA certificate lives.
  * @param keyPath - where the CA private key lives.

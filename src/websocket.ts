@@ -1,20 +1,18 @@
 /**
  * dsh-lan-guard — WebSocket upgrade forwarding.
  *
- * DSH serves its Remote stream on `/api/remote.mux` over a WebSocket upgrade
- * (docs/RESEARCH.md §7), and the shipped UI keeps that socket open for the
+ * DSH serves its Remote stream on `/api/remote.mux` over a WebSocket upgrade, and the shipped UI keeps that socket open for the
  * whole session. The proxy therefore has to relay the upgrade itself rather
  * than treat it as an ordinary HTTP response.
  *
  * Two rules from the researched reference implementations are applied here:
  *
  * - The visitor's socket gets an `error` handler IMMEDIATELY, before any
- *   asynchronous work (docs/RESEARCH.md §5.7 ①). A phone reconnecting drops
+ *   asynchronous work. A phone reconnecting drops
  *   upgrade sockets constantly; an unhandled `error` during an await would
  *   take the whole process down. This is also why the gate in P2 can await
  *   safely.
- * - The upstream 101 passes only the handshake headers a browser needs
- *   (docs/RESEARCH.md §5.3) — never the upstream's arbitrary header set.
+ * - The upstream 101 passes only the handshake headers a browser needs— never the upstream's arbitrary header set.
  */
 import { request as httpRequest, type IncomingMessage, type OutgoingHttpHeaders } from 'node:http'
 import type { Duplex } from 'node:stream'

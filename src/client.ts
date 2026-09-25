@@ -1,12 +1,12 @@
 /**
  * dsh-lan-guard — the browser half: one section inside DSH's OFFICIAL settings
- * page (docs/SPEC.md F6).
+ * page.
  *
  * Hard constraints from the spec, all of them load-bearing:
  *
  * - It registers the official `settings.section` seat and replaces NOTHING.
  *   Layout seats (`sidebar`, `rightbar`, `shell.leading`) and layout root
- *   hooks are out of bounds (docs/GUARDRAILS.md §7).
+ *   hooks are out of bounds.
  * - Pure `React.createElement` — no JSX, no extra front-end build step.
  * - Styles are inline CSS using the official `--dsw-alias-*` variables, so the
  *   light/dark theme follows automatically (dsh-mobile once shipped a
@@ -70,6 +70,7 @@ interface ConfigSnapshot {
   preferences: {
     enabled: boolean
     listenPort: number
+    listenHost: string
     networkInterface: string
     mode: string
     adminPolicy: string
@@ -143,7 +144,7 @@ const CSS = `
  * 12/18, 11/14) and weight (400 regular, 500 strong). Sizes, weights and
  * line-heights therefore come from the official tokens; only colours use the
  * official --dsw-alias-* variables, and only the URL box overrides the family
- * (with the official code font). See docs/RESEARCH.md §4.2.13.
+ * (with the official code font).
  */
 .lg-root{max-width:790px;display:flex;flex-direction:column;gap:18px}
 /*
@@ -594,8 +595,15 @@ function SettingsSection(): ReactElement {
       children: [
         createElement('div', { className: hasPassword ? 'lg-bar' : 'lg-bar warn', key: 'bar' }, [
           createElement('span', { key: 'txt' }, hasPassword
-            ? '🛡️ 访问安全认证已生效'
-            : '⚠️ 尚未设置访问密码，门禁不会放行任何设备'),
+            ? (listener.listenHost === '127.0.0.1'
+              ? '🛡️ 访问安全认证已生效（当前仅本机可访问）'
+              : '🛡️ 访问安全认证已生效')
+            : (listener.listenHost === '127.0.0.1'
+              ? '⚠️ 尚未设置访问密码，门禁不会放行任何设备'
+              // Exposed AND passwordless: the gate still refuses everyone, but
+              // the operator must know the port is visible on the network.
+              : `⚠️ 端口已对局域网开放（${String(listener.listenPort)}），但尚未设置访问密码：`
+                + '门禁此刻拒绝所有设备，不会泄露数据；请先设置访问密码')),
           hasPassword ? null : goSecurity,
         ]),
         createElement('div', { className: 'lg-mono', key: 'url' }, scanUrl ?? '—'),
@@ -841,7 +849,7 @@ function SettingsSection(): ReactElement {
     createElement(Card, {
       key: 'connection',
       title: '连接与证书',
-      subtitle: '监听端口与传输安全',
+      subtitle: '监听范围、端口与传输安全',
       children: [
         createElement('div', { className: 'lg-mono', key: 'ports' },
           `代理端口 ${String(listener.listenPort)} → 上游 ${listener.upstreamOrigin}`),
@@ -850,6 +858,40 @@ function SettingsSection(): ReactElement {
             `配置的端口 ${String(listener.configuredPort ?? '?')} 已被占用，已自动改用 ${String(listener.listenPort)}。`
             + '可在下面改端口，或先关掉占用它的程序。')
           : null,
+        // The bind scope comes first because it is the most consequential
+        // setting on this page: it decides whether the LAN can reach the port
+        // at all. Both choices keep the gate and TLS in force — this is not a
+        // "security off" switch.
+        createElement('div', { className: 'lg-field', key: 'scope' }, [
+          createElement('span', { className: 'lg-label', key: 'l' }, '监听范围（修改后需重启 dsh 生效）'),
+          createElement(ChoiceGrid, {
+            key: 'g',
+            choices: [
+              {
+                id: '0.0.0.0',
+                title: '局域网（默认）',
+                detail: '手机等同网段设备可访问；门禁与自签 HTTPS 全程生效',
+              },
+              {
+                id: '127.0.0.1',
+                title: '仅本机',
+                detail: '只有这台电脑能访问；手机扫码会连不上（更保守）',
+              },
+            ],
+            value: listener.listenHost,
+            disabled: busy,
+            onPick: (id: string) => void write({ preferences: { listenHost: id } }),
+          }),
+          listener.listenHost === '0.0.0.0' || listener.listenHost === '127.0.0.1'
+            ? null
+            : createElement('span', { className: 'lg-label', key: 'custom' },
+              `当前为自定义监听地址 ${listener.listenHost}（在 profile patch 中设置）；选择上面任一项会覆盖它。`),
+          listener.listenHost === '127.0.0.1'
+            ? null
+            : createElement('p', { className: 'lg-hint', key: 'scope-hint' },
+              '对外可达不等于可以进入：未设访问密码时，门禁拒绝所有设备；已设密码则需通过门禁。'
+              + '若只在固定网卡上公布，可在 profile patch 里把 listenHost 写成该网卡 IP。'),
+        ]),
         createElement('div', { className: 'lg-field', key: 'port' }, [
           createElement('span', { className: 'lg-label', key: 'l' }, '代理端口（修改后需重启 dsh 生效）'),
           createElement('div', { className: 'lg-row', key: 'r' }, [

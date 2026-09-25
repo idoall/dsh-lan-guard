@@ -1,13 +1,12 @@
 /**
  * dsh-lan-guard — header translation for the reverse proxy.
  *
- * Two invariants drive everything here (docs/SPEC.md F1/F2, §6.6):
+ * Two invariants drive everything here:
  *
  * 1. The upstream sees a request that came from its own loopback origin, so
  *    `host` (and `origin`, when the browser sent one) are rewritten to the
  *    upstream authority and a loopback session cookie is injected. The DSH
- *    Host/Origin fence keys the cookie to that exact authority
- *    (docs/RESEARCH.md §3.2), so the rewritten `host` and the cookie must
+ *    Host/Origin fence keys the cookie to that exact authority, so the rewritten `host` and the cookie must
  *    always agree.
  * 2. The upstream response is NOT trusted verbatim: hop-by-hop headers never
  *    cross a proxy hop, `set-cookie` is not relayed to the browser (the proxy
@@ -31,7 +30,7 @@ export const HOP_BY_HOP_HEADERS = [
 
 /**
  * Headers a WebSocket 101 may carry upstream → browser. Everything else the
- * upstream sends is dropped (docs/RESEARCH.md §5.3).
+ * upstream sends is dropped.
  */
 export const UPGRADE_RESPONSE_HEADERS = [
   'connection',
@@ -86,8 +85,7 @@ export function authorityOf(origin: string): string {
  * Node hands us the raw request target. A bare-origin request already arrives
  * as `/`, but an absolute-form target (or a target with no path at all) must
  * still land on `/`, because the shipped shell carries `<base href="./">` and
- * resolves every relative asset against the directory it was served from
- * (docs/RESEARCH.md §7.1). We mount at the root only, so no prefix is ever
+ * resolves every relative asset against the directory it was served from. We mount at the root only, so no prefix is ever
  * stripped and no target is rewritten beyond this normalization.
  *
  * @param rawTarget - `req.url` as received.

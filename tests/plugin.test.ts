@@ -1,5 +1,5 @@
 /**
- * Plugin entry tests (docs/PLAN.md §4/§5).
+ * Plugin entry tests.
  *
  * These drive the real `apply`/`startLanGuard` wiring with a stub host, so the
  * phase gate, the gate wiring and the lifecycle disposer are exercised without
@@ -10,6 +10,8 @@
  */
 import { afterEach, describe, expect, it } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
+import { stat } from 'node:fs/promises'
+import { join } from 'node:path'
 import { apply, startLanGuard, type LanGuardHost, type LanGuardRuntime } from '../src/index.ts'
 import type { LanGuardLogger } from '../src/log.ts'
 import type { AuthManager } from '../src/auth/manager.ts'
@@ -52,6 +54,7 @@ describe('startLanGuard', () => {
     fake = await startFakeDsh()
     runtime = await startLanGuard(hostFor(fake), {
       dataDir: await tmpDataDir(),
+      listenHost: '127.0.0.1',
       listenPort: 0,
       upstreamOrigin: fake.origin,
       tls: { mode: 'off' },
@@ -87,11 +90,32 @@ describe('startLanGuard', () => {
     fake = await startFakeDsh()
     await expect(startLanGuard(hostFor(fake, { webServerPort: 3080 }), {
       dataDir: await tmpDataDir(),
+      listenHost: '127.0.0.1',
       listenPort: 3080,
     })).rejects.toThrow(/DSH's own web server port/)
   })
 
+  it('starts with no config at all when the host names the active profile', async () => {
+    // The out-of-box path: an install whose profile patch
+    // carries no `dsh-lan-guard` entry at all must still come up, with its
+    // private state under `<profile>/data/dsh-lan-guard`.
+    fake = await startFakeDsh()
+    const profileDir = await tmpDataDir()
+    runtime = await startLanGuard(hostFor(fake, { profileDir }), {
+      listenHost: '127.0.0.1',
+      listenPort: 0,
+      upstreamOrigin: fake.origin,
+      tls: { mode: 'off' },
+    })
+    expect(runtime).toBeDefined()
+    const derived = join(profileDir, 'data', 'dsh-lan-guard')
+    expect(runtime?.auth.hasPassword).toBe(false)
+    await expect(stat(derived)).resolves.toBeDefined()
+  })
+
   it('refuses an invalid config', async () => {
+    // No explicit dataDir AND no profile directory: the one case the plugin
+    // must refuse rather than invent a shared location.
     fake = await startFakeDsh()
     await expect(startLanGuard(hostFor(fake), {})).rejects.toThrow(/dataDir/)
   })
@@ -102,6 +126,7 @@ describe('startLanGuard', () => {
     fake = await startFakeDsh()
     runtime = await startLanGuard(hostFor(fake), {
       dataDir: await tmpDataDir(),
+      listenHost: '127.0.0.1',
       listenPort: 0,
       upstreamOrigin: fake.origin,
       tls: { mode: 'off' },
@@ -143,6 +168,7 @@ describe('apply', () => {
 
     await apply(ctx, {
       dataDir: await tmpDataDir(),
+      listenHost: '127.0.0.1',
       listenPort: port,
       upstreamOrigin: fake.origin,
       tls: { mode: 'off' },
@@ -164,6 +190,39 @@ describe('apply', () => {
     await expect(requestTo(port, { path: '/', headers: { connection: 'close' } })).rejects.toThrow()
   })
 
+  it('derives dataDir from profileContext so a zero-config install works', async () => {
+    // The reported failure: an install whose profile patch has no entry for
+    // this plugin at all. `profileContext` is the only thing DSH supplies, and
+    // the management routes must still come up.
+    fake = await startFakeDsh()
+    const port = await freePort()
+    const routes: string[] = []
+    const profileDir = await tmpDataDir()
+    const ctx = {
+      logger: () => silentLogger(),
+      connection: { authenticatedUrl: fake.authenticatedUrl, requestRejection: () => undefined },
+      get: (name: string) => (name === 'profileContext' ? { dir: profileDir, name: 'web' } : undefined),
+      webServer: {
+        port: 3080,
+        register: (route: { path: string }) => {
+          routes.push(route.path)
+          return () => {}
+        },
+      },
+      effect: () => {},
+    } as unknown as Context
+
+    await apply(ctx, {
+      listenHost: '127.0.0.1',
+      listenPort: port,
+      upstreamOrigin: fake.origin,
+      tls: { mode: 'off' },
+    })
+
+    expect(routes).toContain('/plugins/dsh-lan-guard/config')
+    await expect(stat(join(profileDir, 'data', 'dsh-lan-guard'))).resolves.toBeDefined()
+  })
+
   it('does not take the plugin down when the settings service is unavailable', async () => {
     fake = await startFakeDsh()
     const port = await freePort()
@@ -179,6 +238,7 @@ describe('apply', () => {
 
     await apply(ctx, {
       dataDir: await tmpDataDir(),
+      listenHost: '127.0.0.1',
       listenPort: port,
       upstreamOrigin: fake.origin,
       tls: { mode: 'off' },

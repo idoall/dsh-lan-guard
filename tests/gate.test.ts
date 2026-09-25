@@ -1,5 +1,5 @@
 /**
- * Gate integration tests (docs/PLAN.md §5 必须验证 · 门禁).
+ * Gate integration tests.
  *
  * These run the REAL proxy with the REAL gate in front of a fake upstream, and
  * drive it over HTTP and a raw WebSocket upgrade — the same paths a phone uses.
@@ -44,6 +44,7 @@ async function harness(config: Record<string, unknown> = {}, password = PASSWORD
     logger: silentLogger(),
   }, {
     dataDir: await tmpDataDir(),
+    listenHost: '127.0.0.1',
     listenPort: 0,
     upstreamOrigin: upstream.origin,
     // These specs speak plain HTTP, so the listener must not serve TLS; the
@@ -399,7 +400,8 @@ describe('loopback exemption', () => {
       logger: silentLogger(),
     }, {
       dataDir: await tmpDataDir(),
-      listenPort: 0,
+      listenHost: '127.0.0.1',
+    listenPort: 0,
       upstreamOrigin: upstream.origin,
       tls: { mode: 'off' },
       auth: { allowLoopback: true },

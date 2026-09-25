@@ -1,5 +1,5 @@
 /**
- * dsh-lan-guard — the visitor login page (docs/SPEC.md F3).
+ * dsh-lan-guard — the visitor login page.
  *
  * Three states must be visually distinct, because two of them look like a
  * working gate but are not:

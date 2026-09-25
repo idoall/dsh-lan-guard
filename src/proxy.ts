@@ -1,13 +1,11 @@
 /**
  * dsh-lan-guard — the reverse proxy itself.
  *
- * The proxy owns its own listener; it never touches DSH's binding
- * (docs/RESEARCH.md §2.1, §4). Requests are relayed transparently to the
+ * The proxy owns its own listener; it never touches DSH's binding. Requests are relayed transparently to the
  * loopback upstream:
  *
  * - HTTP: one `http.request` per visitor request, streamed both ways. Nothing
- *   is buffered, so a large or streaming response keeps its semantics
- *   (docs/SPEC.md F1).
+ *   is buffered, so a large or streaming response keeps its semantics.
  * - WebSocket: the upgrade is relayed by {@link forwardUpgrade}.
  * - A `401` from the upstream means our cached loopback cookie died (DSH
  *   restarted, or the cookie was rotated). For a safe method the request is
@@ -51,11 +49,10 @@ export interface ProxyOptions {
   auth: UpstreamAuth
   /**
    * The visitor gate. When present it runs BEFORE anything is forwarded, on
-   * both the HTTP and the upgrade path (docs/SPEC.md §6.1: the gate is never
-   * behind the listener).
+   * both the HTTP and the upgrade path: the gate is never behind the listener.
    */
   gate?: VisitorGate
-  /** PEM certificate and key; when present the listener serves HTTPS (docs/SPEC.md F4). */
+  /** PEM certificate and key; when present the listener serves HTTPS. */
   tls?: { cert: string; key: string }
   /** Logger. */
   logger?: LanGuardLogger

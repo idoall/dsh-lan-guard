@@ -1,9 +1,9 @@
 /**
- * dsh-lan-guard — the per-address leaf certificate (docs/SPEC.md F4).
+ * dsh-lan-guard — the per-address leaf certificate.
  *
  * The leaf is short-lived and is RE-SIGNED whenever the machine's addresses
  * change (DHCP, Wi-Fi switch, a new NIC). The CA identity never changes, so a
- * phone that trusted the CA once keeps working (docs/RESEARCH.md §5.1).
+ * phone that trusted the CA once keeps working.
  *
  * The leaf carries every current address as a SAN, so the same certificate
  * serves whichever URL the phone was given.
