@@ -455,3 +455,28 @@ describe('F9 device approval and permanent ban', () => {
     expect(refused.body.toString()).toContain('已被移除访问权限')
   })
 })
+
+describe('blank page regression: ?auth= must not skip pairing', () => {
+  it('shows the pairing page and keeps answering 428 for assets until the device pairs', async () => {
+    const { port } = await harness({ auth: { mode: 'password', requirePairing: true } })
+    const session = cookiePair(await login(port), 'dsh_lan_guard_session')
+
+    // The visitor opened the shared link: the app HTML must NOT be delivered
+    // before the device has named itself, otherwise the bundles below are
+    // answered with 428 and the page renders blank.
+    const page = await requestTo(port, {
+      path: '/?auth=dsh_deadbeefdeadbeefdeadbeefdeadbeefdead',
+      headers: { accept: 'text/html', cookie: session },
+    })
+    expect(page.status).toBe(200)
+    expect(page.body.toString()).toContain('确认这台设备')
+    expect(page.body.toString()).not.toContain('fake dsh index')
+
+    const asset = await requestTo(port, {
+      path: '/plugins?names=x',
+      headers: { accept: '*/*', cookie: session },
+    })
+    expect(asset.status).toBe(428)
+    expect(JSON.parse(asset.body.toString()).error).toBe('pairing_required')
+  })
+})

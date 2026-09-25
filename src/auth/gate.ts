@@ -169,17 +169,29 @@ export class VisitorGate {
     }
 
     const verdict = await this.#auth.verifyRequest(req)
-    if (verdict.ok) {
-      // Pairing exists to name REMOTE devices; the machine's own operator
-      // (loopback) and a disabled gate never see it.
-      if (this.#requirePairing() && verdict.via === 'session') {
-        this.#sendPairingPage(req, res)
-        return 'handled'
-      }
-      return 'allow'
-    }
+    if (verdict.ok) return this.#afterVerdict(req, res, verdict)
     this.#sendUnauthorized(req, res, verdict)
     return 'handled'
+  }
+
+  /**
+   * Apply the pairing requirement to an already-authenticated request.
+   *
+   * Pairing exists to name REMOTE devices; the machine's own operator (loopback)
+   * and a disabled gate never see it. Every authenticated entry point must go
+   * through here — skipping it once left the app half-loaded (HTML 200, bundles
+   * 428) and the page blank.
+   */
+  #afterVerdict(
+    req: IncomingMessage,
+    res: ServerResponse,
+    verdict: Extract<VerifyResult, { ok: true }>,
+  ): GateDecision {
+    if (this.#requirePairing() && verdict.via === 'session') {
+      this.#sendPairingPage(req, res)
+      return 'handled'
+    }
+    return 'allow'
   }
 
   /**
@@ -319,7 +331,11 @@ export class VisitorGate {
       // link deserves better than a bare password prompt (user report
       // 2026-09-25: "通过局域网分享的链接打开页面，显示为空白").
       const verdict = await this.#auth.verifyRequest(req)
-      if (verdict.ok) return 'allow'
+      // An authenticated session still has to satisfy the pairing requirement:
+      // returning 'allow' here let the app HTML through while its bundle
+      // requests (no ?auth=, no device cookie) were answered with 428, so the
+      // visitor saw a BLANK page (user report 2026-09-25).
+      if (verdict.ok) return this.#afterVerdict(req, res, verdict)
       this.#logger.warn('passwordless link ignored: mode=password ip=%s', clientIp(req))
       this.#sendLoginPage(req, res, 'link-inactive', 401)
       return 'handled'
@@ -332,7 +348,7 @@ export class VisitorGate {
     if (!accepted) {
       this.#logger.warn('passwordless link rejected ip=%s', clientIp(req))
       const verdict = await this.#auth.verifyRequest(req)
-      if (verdict.ok) return 'allow'
+      if (verdict.ok) return this.#afterVerdict(req, res, verdict)
       this.#sendLoginPage(req, res, 'link-inactive', 401)
       return 'handled'
     }
