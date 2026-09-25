@@ -47,6 +47,7 @@ function configWith(overrides: Partial<LanGuardConfigShape['auth']> = {}): LanGu
       maxFailedAttempts: 5,
       lockoutMs: 60_000,
       requirePairing: false,
+      requireApproval: false,
       ...overrides,
     },
     tls: { mode: 'off', caCertFile: null, caKeyFile: null, certFile: null, keyFile: null, allowInsecureLan: false },
@@ -219,6 +220,7 @@ describe('snapshot', () => {
       adminProtection: true,
       allowLoopback: true,
       requirePairing: false,
+      requireApproval: false,
     })
     expect(body.authStatus.hasPassword).toBe(true)
     expect(body.authStatus.hasAdminPassword).toBe(true)
