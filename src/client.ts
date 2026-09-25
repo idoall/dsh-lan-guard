@@ -146,7 +146,31 @@ const CSS = `
  * official --dsw-alias-* variables, and only the URL box overrides the family
  * (with the official code font).
  */
-.lg-root{max-width:790px;display:flex;flex-direction:column;gap:18px}
+.lg-root{max-width:790px;display:flex;flex-direction:column;gap:18px;
+  /* Liquid Glass (user request 2026-09-26). One material definition, every
+     value DERIVED from official tokens through color-mix, so the same rules
+     follow the light/dark palette with no theme branch and no invented token
+     name (see the 2026-09-24 contrast incident). Each surface below still
+     declares its solid token colour FIRST: if color-mix or backdrop-filter is
+     unsupported the later declaration is dropped at parse time and the card
+     stays a plain, fully legible token surface. */
+  --lg-blur:blur(20px) saturate(180%);
+  --lg-tint:color-mix(in srgb, var(--dsw-alias-bg-layer-1,#fff) 62%, transparent);
+  --lg-tint-soft:color-mix(in srgb, var(--dsw-alias-bg-layer-3,#f1f2f4) 62%, transparent);
+  --lg-edge:color-mix(in srgb, var(--dsw-alias-label-primary,#1f2329) 14%, transparent);
+  --lg-sheen:linear-gradient(158deg, color-mix(in srgb, #fff 12%, transparent) 0%, transparent 46%);
+  --lg-lift:0 10px 30px color-mix(in srgb, #000 20%, transparent),
+           inset 0 1px 0 color-mix(in srgb, #fff 30%, transparent),
+           inset 0 -1px 0 color-mix(in srgb, #000 7%, transparent);
+  position:relative;isolation:isolate}
+/* The light the glass refracts. Scoped to this plugin's own subtree and kept
+   at inset:0 so it can never add overflow to the official settings dialog. */
+.lg-root::before{content:'';position:absolute;inset:0;z-index:-1;pointer-events:none;border-radius:24px;
+  background:
+    radial-gradient(42% 36% at 14% 3%, color-mix(in srgb, var(--dsw-static-deepseek-500,#4176e6) 44%, transparent), transparent 70%),
+    radial-gradient(38% 32% at 90% 14%, color-mix(in srgb, var(--dsw-alias-state-business-primary,#1a3f8f) 38%, transparent), transparent 72%),
+    radial-gradient(50% 44% at 56% 100%, color-mix(in srgb, var(--dsw-alias-state-success-primary,#1b5e20) 30%, transparent), transparent 74%);
+  filter:blur(10px)}
 /*
  * Tab bar = the OFFICIAL segmented-control pattern (the 外观 浅色/深色/跟随系统
  * selector in 通用设置): every item keeps the SAME font and the SAME
@@ -158,14 +182,33 @@ const CSS = `
 .lg-tabs{display:flex;gap:8px;flex-wrap:wrap}
 .lg-tab{font:var(--dsw-font-s-14,14px/22px sans-serif);cursor:pointer;
   color:var(--dsw-alias-label-primary,#1f2329);background:transparent;
-  border:0.5px solid var(--dsw-alias-border-l2,#e5e6eb);border-radius:20px;padding:6px 14px}
+  border:0.5px solid var(--dsw-alias-border-l2,#e5e6eb);border-radius:20px;padding:6px 14px;
+  backdrop-filter:blur(10px) saturate(150%);-webkit-backdrop-filter:blur(10px) saturate(150%);
+  box-shadow:inset 0 1px 0 color-mix(in srgb, #fff 22%, transparent)}
 .lg-tab[aria-selected=true]{background:var(--dsw-alias-bg-layer-3,#f1f2f4);
-  border-color:var(--dsw-alias-label-tertiary,#adb2b8)}
+  border-color:var(--dsw-alias-label-tertiary,#adb2b8);
+  background-image:var(--lg-sheen);box-shadow:var(--lg-lift)}
 .lg-tabbody{display:flex;flex-direction:column;gap:18px}
 .lg-card{background:var(--dsw-alias-bg-layer-1,#fff);border:1px solid var(--dsw-alias-border-l2,#e5e6eb);
-  border-radius:14px;padding:20px}
+  border-radius:20px;padding:16px 18px;
+  background-color:var(--lg-tint);background-image:var(--lg-sheen);
+  border-color:var(--lg-edge);
+  backdrop-filter:var(--lg-blur);-webkit-backdrop-filter:var(--lg-blur);
+  box-shadow:var(--lg-lift);position:relative}
+/* Specular rim: a 1px gradient edge that is bright where the "light" enters
+   and fades away from it — the part of Liquid Glass that reads as glass rather
+   than as a plain translucent panel. Masked to the border ring only. */
+.lg-card::after,.lg-choice::after{content:'';position:absolute;inset:0;border-radius:inherit;padding:1px;
+  background:linear-gradient(152deg,
+    color-mix(in srgb, #fff 55%, transparent) 0%,
+    color-mix(in srgb, #fff 8%, transparent) 38%,
+    transparent 62%,
+    color-mix(in srgb, #fff 22%, transparent) 100%);
+  -webkit-mask:linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite:xor;mask:linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite:exclude;pointer-events:none}
 .lg-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
-.lg-title{font:var(--dsw-font-base-strong-16,500 16px/24px sans-serif);margin:0;
+.lg-title{font:var(--dsw-font-s-strong-14,500 14px/22px sans-serif);margin:0;
   color:var(--dsw-alias-label-primary,#1f2329)}
 .lg-sub{font:var(--dsw-font-xxs-12,12px/18px sans-serif);margin:4px 0 0;
   color:var(--dsw-alias-label-secondary,#6b7280)}
@@ -173,25 +216,53 @@ const CSS = `
   font:var(--dsw-font-xxs-12,12px/18px sans-serif);white-space:nowrap;
   background:var(--dsw-alias-state-success-tertiary,#e8f5e9);color:var(--dsw-alias-state-success-primary,#1b5e20)}
 .lg-pill.off{background:var(--dsw-alias-bg-layer-3,#f1f2f4);color:var(--dsw-alias-label-secondary,#6b7280)}
-.lg-bar{display:flex;align-items:center;gap:8px;justify-content:space-between;margin-top:16px;padding:10px 12px;
-  border-radius:10px;font:var(--dsw-font-xs-13,13px/20px sans-serif);
+.lg-bar{display:flex;align-items:center;gap:10px;justify-content:space-between;flex-wrap:wrap;margin-top:16px;padding:8px 12px;
+  border-radius:var(--dsw-radius-md,12px);font:var(--dsw-font-xs-13,13px/20px sans-serif);
   background:var(--dsw-alias-state-success-tertiary,#e8f5e9);color:var(--dsw-alias-state-success-primary,#1b5e20)}
+/* The notice text shrinks and wraps INSIDE itself; the action keeps its
+   intrinsic width and never breaks mid-label (user report 2026-09-26: the
+   button read "去设置访 / 问密码"). */
+/* A non-zero basis keeps the text from collapsing to nothing, so a tight
+   container wraps the ACTION to its own line instead of squeezing it. */
+.lg-bar>span:first-child{flex:1 1 16ch;min-width:0}
+.lg-bar .lg-btn{flex:0 0 auto;white-space:nowrap;height:32px;padding:0 12px;
+  font:var(--dsw-font-xs-13,13px/20px sans-serif);font-weight:400}
 .lg-bar-compact{margin-top:0;padding:6px 10px}
 .lg-bar.info{background:var(--dsw-alias-state-business-tertiary,#e8f0fe);color:var(--dsw-alias-state-business-primary,#1a3f8f)}
 .lg-bar.warn{background:var(--dsw-alias-state-warn-tertiary,#fffbeb);color:var(--dsw-alias-state-warn-label,#92400e)}
 .lg-bar.danger{background:var(--dsw-alias-interactive-bg-hover-danger,#fef2f2);color:var(--dsw-alias-state-error-primary,#b91c1c)}
 .lg-mono-sm{font:var(--dsw-font-xxs-12,12px/18px sans-serif)}
-.lg-mono{margin-top:14px;padding:10px 12px;border-radius:10px;background:var(--dsw-alias-bg-base,#f1f2f4);
+.lg-mono{margin-top:14px;padding:10px 12px;border-radius:12px;background:var(--dsw-alias-bg-base,#f1f2f4);
   border:1px solid var(--dsw-alias-border-l2,#e5e6eb);
+  background-color:color-mix(in srgb, var(--dsw-alias-bg-base,#f1f2f4) 70%, transparent);
+  border-color:var(--lg-edge);
+  backdrop-filter:blur(12px) saturate(150%);-webkit-backdrop-filter:blur(12px) saturate(150%);
+  box-shadow:inset 0 1px 2px color-mix(in srgb, #000 10%, transparent),
+             inset 0 1px 0 color-mix(in srgb, #fff 18%, transparent);
   font:var(--dsw-font-xs-13,13px/20px sans-serif);
   font-family:var(--ds-font-family-code,ui-monospace,SFMono-Regular,Menlo,monospace);
   word-break:break-all;color:var(--dsw-alias-label-primary,#1f2329)}
+/* Copyable values (the access URL, the upgrade command) are SINGLE-LINE fields:
+   no hard wrapping, horizontal scrolling instead, so a long URL can no longer
+   push the rest of the card down (user request 2026-09-26). Scrolling never
+   truncates what you get — the copy button writes the source string, never the
+   rendered text — and the thin scrollbar makes "there is more to the right"
+   visible. Dragging inside the field selects and auto-scrolls, like a text box. */
+.lg-mono-scroll{white-space:nowrap;overflow-x:auto;overflow-y:hidden;word-break:normal;
+  cursor:text;scrollbar-width:thin}
+.lg-mono-scroll::-webkit-scrollbar{height:6px}
+.lg-mono-scroll::-webkit-scrollbar-track{background:transparent}
+.lg-mono-scroll::-webkit-scrollbar-thumb{border-radius:999px;
+  background:color-mix(in srgb, var(--dsw-alias-label-tertiary,#adb2b8) 55%, transparent)}
 .lg-row{display:flex;gap:10px;margin-top:12px}
 /* auto-fit: two options (TLS) fill the row evenly instead of leaving a third
    of the row empty, and three options (mode) still fit on one line. */
 .lg-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px;margin-top:12px}
-.lg-choice{text-align:left;cursor:pointer;border-radius:12px;padding:14px;background:var(--dsw-alias-bg-layer-1,#fff);
-  border:1px solid var(--dsw-alias-border-l2,#e5e6eb);color:inherit}
+.lg-choice{text-align:left;cursor:pointer;border-radius:var(--dsw-radius-md,12px);padding:12px 14px;background:var(--dsw-alias-bg-layer-1,#fff);
+  border:1px solid var(--dsw-alias-border-l2,#e5e6eb);color:inherit;
+  background-color:var(--lg-tint);background-image:var(--lg-sheen);border-color:var(--lg-edge);
+  backdrop-filter:var(--lg-blur);-webkit-backdrop-filter:var(--lg-blur);box-shadow:var(--lg-lift);
+  position:relative}
 .lg-choice[aria-pressed=true]{border:2px solid var(--dsw-static-deepseek-500,#4f46e5);
   background:var(--dsw-alias-interactive-bg-hover,#eef0ff)}
 .lg-choice h4{font:var(--dsw-font-s-strong-14,500 14px/22px sans-serif);margin:0 0 6px;
@@ -199,19 +270,30 @@ const CSS = `
 .lg-choice p{font:var(--dsw-font-xxs-12,12px/18px sans-serif);margin:0;
   color:var(--dsw-alias-label-secondary,#6b7280)}
 .lg-field{display:flex;flex-direction:column;gap:6px;margin-top:14px}
-.lg-label{font:var(--dsw-font-xs-13,13px/20px sans-serif);color:var(--dsw-alias-label-secondary,#6b7280)}
-.lg-input{box-sizing:border-box;height:44px;padding:0 12px;border-radius:10px;border:1px solid var(--dsw-alias-border-l2,#d0d3d9);
+.lg-label{font:var(--dsw-font-s-14,14px/22px sans-serif);color:var(--dsw-alias-label-secondary,#6b7280)}
+.lg-input{box-sizing:border-box;height:36px;padding:0 14px;border-radius:var(--dsw-radius-md,12px);border:1px solid var(--dsw-alias-border-l2,#d0d3d9);
   font:var(--dsw-font-s-14,14px/22px sans-serif);
-  background:var(--dsw-alias-bg-base,#fff);color:var(--dsw-alias-label-primary,#1f2329)}
-.lg-btn{box-sizing:border-box;height:44px;padding:0 16px;border:0;border-radius:10px;cursor:pointer;
-  font:var(--dsw-font-s-strong-14,500 14px/22px sans-serif);
+  background:var(--dsw-alias-bg-base,#fff);color:var(--dsw-alias-label-primary,#1f2329);
+  background-color:color-mix(in srgb, var(--dsw-alias-bg-base,#fff) 74%, transparent);
+  border-color:var(--lg-edge);
+  backdrop-filter:blur(12px) saturate(150%);-webkit-backdrop-filter:blur(12px) saturate(150%);
+  box-shadow:inset 0 1px 2px color-mix(in srgb, #000 9%, transparent),
+             inset 0 1px 0 color-mix(in srgb, #fff 20%, transparent)}
+.lg-btn{box-sizing:border-box;height:36px;padding:0 14px;border:0;border-radius:var(--dsw-radius-md,12px);cursor:pointer;
+  font:var(--dsw-font-s-14,14px/22px sans-serif);
   /* Brand blue + the official white token (both are official variables): the
      reference implementation's primary action colour, chosen by the user
      2026-09-24 over the theme-dependent near-white default. */
   background:var(--dsw-static-deepseek-500,#4176e6);
-  color:var(--dsw-static-neutral-bluish-00,#fff)}
+  color:var(--dsw-static-neutral-bluish-00,#fff);
+  background-image:linear-gradient(180deg, color-mix(in srgb, #fff 22%, transparent), transparent 62%);
+  box-shadow:0 6px 18px color-mix(in srgb, var(--dsw-static-deepseek-500,#4176e6) 32%, transparent),
+             inset 0 1px 0 color-mix(in srgb, #fff 36%, transparent)}
 .lg-btn.secondary{background:var(--dsw-alias-bg-layer-3,#fff);color:var(--dsw-alias-label-primary,#1f2329);
-  border:1px solid var(--dsw-alias-border-l2,#d0d3d9)}
+  border:1px solid var(--dsw-alias-border-l2,#d0d3d9);
+  background-color:var(--lg-tint-soft);background-image:var(--lg-sheen);border-color:var(--lg-edge);
+  backdrop-filter:blur(12px) saturate(150%);-webkit-backdrop-filter:blur(12px) saturate(150%);
+  box-shadow:inset 0 1px 0 color-mix(in srgb, #fff 26%, transparent)}
 .lg-btn:disabled{opacity:.55;cursor:not-allowed}
 .lg-btn.full{width:100%}
 .lg-btn-small{height:28px;padding:0 10px;white-space:nowrap;flex-shrink:0;font:var(--dsw-font-xxs-12,12px/18px sans-serif)}
@@ -227,7 +309,9 @@ const CSS = `
 /* The white plate HUGS the code (fit-content + auto margins) instead of
    stretching across the card, and the code is a compact 190px — matching the
    reference implementation's proportions (user feedback 2026-09-24). */
-.lg-qr{margin:14px auto 0;padding:10px;border-radius:10px;background:#fff;
+/* Deliberately OPAQUE: a QR code on a translucent plate loses contrast and
+   may stop scanning. Never give this rule a glass treatment. */
+.lg-qr{margin:14px auto 0;padding:10px;border-radius:12px;background:#fff;
   border:1px solid var(--dsw-alias-border-l2,#e5e6eb);width:fit-content}
 .lg-qr svg{display:block;width:190px;height:190px}
 .lg-hint{font:var(--dsw-font-xxs-12,12px/18px sans-serif);margin:14px 0 0;
@@ -251,8 +335,11 @@ const CSS = `
 .lg-link{color:var(--dsw-alias-label-secondary,#6b7280);text-decoration:none;
   font:var(--dsw-font-xxs-12,12px/18px sans-serif)}
 .lg-link:hover{color:var(--dsw-alias-label-primary,#1f2329)}
-.lg-update-panel{margin:0;padding:12px;border-radius:10px;
-  background:var(--dsw-alias-layer-2,#f1f2f4);border:1px solid var(--dsw-alias-border-l2,#e5e6eb)}
+.lg-update-panel{margin:0;padding:12px;border-radius:var(--dsw-radius-md,12px);
+  background:var(--dsw-alias-layer-2,#f1f2f4);border:1px solid var(--dsw-alias-border-l2,#e5e6eb);
+  background-color:var(--lg-tint-soft);background-image:var(--lg-sheen);border-color:var(--lg-edge);
+  backdrop-filter:blur(14px) saturate(150%);-webkit-backdrop-filter:blur(14px) saturate(150%);
+  box-shadow:inset 0 1px 0 color-mix(in srgb, #fff 24%, transparent)}
 .lg-update-title{font:var(--dsw-font-s-strong-14,500 14px/22px sans-serif);
   color:var(--dsw-alias-label-primary,#1f2329);margin-bottom:8px}
 .lg-sec-title{margin:18px 0 2px;font:var(--dsw-font-s-strong-14,500 14px/22px sans-serif);
@@ -261,8 +348,11 @@ const CSS = `
 .lg-chip.wait{background:var(--dsw-alias-state-warn-tertiary,#3a2f16);color:var(--dsw-alias-state-warn-label,#fbbf24)}
 .lg-chip.ban{background:var(--dsw-static-red-600-a08,#ec13131f);color:var(--dsw-static-red-400,#f25a5a)}
 .lg-danger{color:var(--dsw-static-red-400,#f25a5a);border-color:var(--dsw-static-red-400,#f25a5a)}
-.lg-device{display:block;margin-top:12px;padding:10px 12px;border-radius:10px;
-  background:var(--dsw-alias-bg-base,#f1f2f4);border:1px solid var(--dsw-alias-border-l2,#e5e6eb)}
+.lg-device{display:block;margin-top:12px;padding:10px 12px;border-radius:var(--dsw-radius-md,12px);
+  background:var(--dsw-alias-bg-base,#f1f2f4);border:1px solid var(--dsw-alias-border-l2,#e5e6eb);
+  background-color:var(--lg-tint-soft);border-color:var(--lg-edge);
+  backdrop-filter:blur(12px) saturate(150%);-webkit-backdrop-filter:blur(12px) saturate(150%);
+  box-shadow:inset 0 1px 0 color-mix(in srgb, #fff 22%, transparent)}
 .lg-device-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
 .lg-name-chip{display:inline-flex;align-items:center;min-width:0}
 .lg-device-actions{display:inline-flex;align-items:center;gap:8px;flex-shrink:0}
@@ -606,7 +696,11 @@ function SettingsSection(): ReactElement {
                 + '门禁此刻拒绝所有设备，不会泄露数据；请先设置访问密码')),
           hasPassword ? null : goSecurity,
         ]),
-        createElement('div', { className: 'lg-mono', key: 'url' }, scanUrl ?? '—'),
+        createElement('div', {
+          className: 'lg-mono lg-mono-scroll',
+          key: 'url',
+          title: scanUrl ?? '',
+        }, scanUrl ?? '—'),
         createElement('div', { className: 'lg-row', key: 'copy' }, [
           createElement('button', {
             key: 'c',
@@ -1039,8 +1133,11 @@ function SettingsSection(): ReactElement {
     : createElement('div', { className: 'lg-update-panel', key: 'updatepanel' }, [
       createElement('div', { key: 't', className: 'lg-update-title' },
         `发现新版本 v${String(update.latest)}（当前 v${update.current}）`),
-      createElement('div', { key: 'c', className: 'lg-mono' },
-        `dsh plugin --profile web add dsh-lan-guard@${String(update.latest)}`),
+      createElement('div', {
+        key: 'c',
+        className: 'lg-mono lg-mono-scroll',
+        title: `dsh plugin --profile web add dsh-lan-guard@${String(update.latest)}`,
+      }, `dsh plugin --profile web add dsh-lan-guard@${String(update.latest)}`),
       createElement('div', { className: 'lg-row', key: 'r' }, [
         createElement('button', {
           key: 'cp',
