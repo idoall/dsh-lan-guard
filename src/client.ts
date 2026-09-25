@@ -190,7 +190,7 @@ const CSS = `
   background-image:var(--lg-sheen);box-shadow:var(--lg-lift)}
 .lg-tabbody{display:flex;flex-direction:column;gap:18px}
 .lg-card{background:var(--dsw-alias-bg-layer-1,#fff);border:1px solid var(--dsw-alias-border-l2,#e5e6eb);
-  border-radius:20px;padding:20px;
+  border-radius:20px;padding:16px 18px;
   background-color:var(--lg-tint);background-image:var(--lg-sheen);
   border-color:var(--lg-edge);
   backdrop-filter:var(--lg-blur);-webkit-backdrop-filter:var(--lg-blur);
@@ -208,7 +208,7 @@ const CSS = `
   -webkit-mask-composite:xor;mask:linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   mask-composite:exclude;pointer-events:none}
 .lg-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
-.lg-title{font:var(--dsw-font-base-strong-16,500 16px/24px sans-serif);margin:0;
+.lg-title{font:var(--dsw-font-s-strong-14,500 14px/22px sans-serif);margin:0;
   color:var(--dsw-alias-label-primary,#1f2329)}
 .lg-sub{font:var(--dsw-font-xxs-12,12px/18px sans-serif);margin:4px 0 0;
   color:var(--dsw-alias-label-secondary,#6b7280)}
@@ -216,9 +216,17 @@ const CSS = `
   font:var(--dsw-font-xxs-12,12px/18px sans-serif);white-space:nowrap;
   background:var(--dsw-alias-state-success-tertiary,#e8f5e9);color:var(--dsw-alias-state-success-primary,#1b5e20)}
 .lg-pill.off{background:var(--dsw-alias-bg-layer-3,#f1f2f4);color:var(--dsw-alias-label-secondary,#6b7280)}
-.lg-bar{display:flex;align-items:center;gap:8px;justify-content:space-between;margin-top:16px;padding:10px 12px;
-  border-radius:10px;font:var(--dsw-font-xs-13,13px/20px sans-serif);
+.lg-bar{display:flex;align-items:center;gap:10px;justify-content:space-between;flex-wrap:wrap;margin-top:16px;padding:8px 12px;
+  border-radius:var(--dsw-radius-md,12px);font:var(--dsw-font-xs-13,13px/20px sans-serif);
   background:var(--dsw-alias-state-success-tertiary,#e8f5e9);color:var(--dsw-alias-state-success-primary,#1b5e20)}
+/* The notice text shrinks and wraps INSIDE itself; the action keeps its
+   intrinsic width and never breaks mid-label (user report 2026-09-26: the
+   button read "去设置访 / 问密码"). */
+/* A non-zero basis keeps the text from collapsing to nothing, so a tight
+   container wraps the ACTION to its own line instead of squeezing it. */
+.lg-bar>span:first-child{flex:1 1 16ch;min-width:0}
+.lg-bar .lg-btn{flex:0 0 auto;white-space:nowrap;height:32px;padding:0 12px;
+  font:var(--dsw-font-xs-13,13px/20px sans-serif);font-weight:400}
 .lg-bar-compact{margin-top:0;padding:6px 10px}
 .lg-bar.info{background:var(--dsw-alias-state-business-tertiary,#e8f0fe);color:var(--dsw-alias-state-business-primary,#1a3f8f)}
 .lg-bar.warn{background:var(--dsw-alias-state-warn-tertiary,#fffbeb);color:var(--dsw-alias-state-warn-label,#92400e)}
@@ -238,7 +246,7 @@ const CSS = `
 /* auto-fit: two options (TLS) fill the row evenly instead of leaving a third
    of the row empty, and three options (mode) still fit on one line. */
 .lg-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px;margin-top:12px}
-.lg-choice{text-align:left;cursor:pointer;border-radius:16px;padding:14px;background:var(--dsw-alias-bg-layer-1,#fff);
+.lg-choice{text-align:left;cursor:pointer;border-radius:var(--dsw-radius-md,12px);padding:12px 14px;background:var(--dsw-alias-bg-layer-1,#fff);
   border:1px solid var(--dsw-alias-border-l2,#e5e6eb);color:inherit;
   background-color:var(--lg-tint);background-image:var(--lg-sheen);border-color:var(--lg-edge);
   backdrop-filter:var(--lg-blur);-webkit-backdrop-filter:var(--lg-blur);box-shadow:var(--lg-lift);
@@ -250,8 +258,8 @@ const CSS = `
 .lg-choice p{font:var(--dsw-font-xxs-12,12px/18px sans-serif);margin:0;
   color:var(--dsw-alias-label-secondary,#6b7280)}
 .lg-field{display:flex;flex-direction:column;gap:6px;margin-top:14px}
-.lg-label{font:var(--dsw-font-xs-13,13px/20px sans-serif);color:var(--dsw-alias-label-secondary,#6b7280)}
-.lg-input{box-sizing:border-box;height:44px;padding:0 12px;border-radius:12px;border:1px solid var(--dsw-alias-border-l2,#d0d3d9);
+.lg-label{font:var(--dsw-font-s-14,14px/22px sans-serif);color:var(--dsw-alias-label-secondary,#6b7280)}
+.lg-input{box-sizing:border-box;height:36px;padding:0 14px;border-radius:var(--dsw-radius-md,12px);border:1px solid var(--dsw-alias-border-l2,#d0d3d9);
   font:var(--dsw-font-s-14,14px/22px sans-serif);
   background:var(--dsw-alias-bg-base,#fff);color:var(--dsw-alias-label-primary,#1f2329);
   background-color:color-mix(in srgb, var(--dsw-alias-bg-base,#fff) 74%, transparent);
@@ -259,8 +267,8 @@ const CSS = `
   backdrop-filter:blur(12px) saturate(150%);-webkit-backdrop-filter:blur(12px) saturate(150%);
   box-shadow:inset 0 1px 2px color-mix(in srgb, #000 9%, transparent),
              inset 0 1px 0 color-mix(in srgb, #fff 20%, transparent)}
-.lg-btn{box-sizing:border-box;height:44px;padding:0 16px;border:0;border-radius:10px;cursor:pointer;
-  font:var(--dsw-font-s-strong-14,500 14px/22px sans-serif);
+.lg-btn{box-sizing:border-box;height:36px;padding:0 14px;border:0;border-radius:var(--dsw-radius-md,12px);cursor:pointer;
+  font:var(--dsw-font-s-14,14px/22px sans-serif);
   /* Brand blue + the official white token (both are official variables): the
      reference implementation's primary action colour, chosen by the user
      2026-09-24 over the theme-dependent near-white default. */
@@ -315,7 +323,7 @@ const CSS = `
 .lg-link{color:var(--dsw-alias-label-secondary,#6b7280);text-decoration:none;
   font:var(--dsw-font-xxs-12,12px/18px sans-serif)}
 .lg-link:hover{color:var(--dsw-alias-label-primary,#1f2329)}
-.lg-update-panel{margin:0;padding:12px;border-radius:14px;
+.lg-update-panel{margin:0;padding:12px;border-radius:var(--dsw-radius-md,12px);
   background:var(--dsw-alias-layer-2,#f1f2f4);border:1px solid var(--dsw-alias-border-l2,#e5e6eb);
   background-color:var(--lg-tint-soft);background-image:var(--lg-sheen);border-color:var(--lg-edge);
   backdrop-filter:blur(14px) saturate(150%);-webkit-backdrop-filter:blur(14px) saturate(150%);
@@ -328,7 +336,7 @@ const CSS = `
 .lg-chip.wait{background:var(--dsw-alias-state-warn-tertiary,#3a2f16);color:var(--dsw-alias-state-warn-label,#fbbf24)}
 .lg-chip.ban{background:var(--dsw-static-red-600-a08,#ec13131f);color:var(--dsw-static-red-400,#f25a5a)}
 .lg-danger{color:var(--dsw-static-red-400,#f25a5a);border-color:var(--dsw-static-red-400,#f25a5a)}
-.lg-device{display:block;margin-top:12px;padding:10px 12px;border-radius:14px;
+.lg-device{display:block;margin-top:12px;padding:10px 12px;border-radius:var(--dsw-radius-md,12px);
   background:var(--dsw-alias-bg-base,#f1f2f4);border:1px solid var(--dsw-alias-border-l2,#e5e6eb);
   background-color:var(--lg-tint-soft);border-color:var(--lg-edge);
   backdrop-filter:blur(12px) saturate(150%);-webkit-backdrop-filter:blur(12px) saturate(150%);
