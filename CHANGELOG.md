@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.2.0] — 2026-09-25
 
 ### 新增 — 升级检测（SPEC F8，方案 A）
 
