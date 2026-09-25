@@ -32,7 +32,25 @@ export interface LoginPageOptions {
   now?: number
   /** Where to go after a successful login (already validated as a local path). */
   next?: string
+  /**
+   * Whether a first-time device must ALSO name itself after logging in (pairing).
+   *
+   * Surfaced as a hint on the password page: the two gates are sequential, so
+   * "password first, then a name" must be expected rather than a surprise
+   * (user report 2026-09-26: "手机端扫码时只让我输密码，不让我输名称").
+   */
+  pairingRequired?: boolean
 }
+
+/**
+ * States in which submitting the password can still get the visitor in.
+ *
+ * The pairing hint is only shown where a login is actually reachable: a removed
+ * device, a gate with no password, and token-only mode are not.
+ */
+const LOGIN_CAPABLE_STATES: readonly LoginState[] = [
+  'prompt', 'invalid', 'locked', 'csrf', 'link-inactive',
+]
 
 /**
  * Render the device-pairing page (P4-g).
@@ -148,8 +166,12 @@ function notice(state: LoginState, lockedUntilMs: number | undefined, now: numbe
       + '请在运行本程序的电脑上打开设置 → 局域网访问 → 已授权设备，点「批准」后刷新本页即可进入。</p>'
   }
   if (state === 'device-removed') {
+    // "重新放行" really does restore the same browser (unblock keeps the record);
+    // DELETING the record does not, because the browser still presents its old
+    // device cookie — so the old advice ("删除该记录后重新确认") was a dead end.
     return '<p class="notice error"><strong>此设备已被移除访问权限。</strong><br>'
-      + '请联系管理员在「已授权设备」中重新放行，或让管理员删除该记录后重新确认。</p>'
+      + '请联系管理员在「已授权设备」中「解除拉黑」，同一台设备会立即恢复；'
+      + '若该记录已被删除，请清除本浏览器的本站数据后再访问。</p>'
   }
   if (state === 'token-only') {
     return '<p class="notice warn">当前验证模式为<strong>仅安全 Token</strong>，不接受密码登录。'
@@ -171,10 +193,17 @@ function notice(state: LoginState, lockedUntilMs: number | undefined, now: numbe
  */
 export function renderLoginPage(options: LoginPageOptions): string {
   const now = options.now ?? Date.now()
+  // `link-inactive` is deliberately NOT in this list: it only means the LINK is
+  // dead, while the password form still works. Disabling it stranded real
+  // phones on a page whose own notice says "请输入访问密码" (found 2026-09-26).
   const blocked = options.state === 'locked' || options.state === 'no-password'
     || options.state === 'device-removed' || options.state === 'pending-approval'
-    || options.state === 'link-inactive'
   const next = options.next !== undefined && options.next.startsWith('/') ? options.next : '/'
+  // Say the second gate out loud BEFORE the password is submitted: the visitor
+  // otherwise reads "扫码即登录" and is surprised by the naming page.
+  const pairingHint = options.pairingRequired === true && LOGIN_CAPABLE_STATES.includes(options.state)
+    ? '<p class="hint">首次访问：通过后还需要给这台设备起个名字，方便你在「已授权设备」里识别和单独吊销。</p>'
+    : ''
   const modeHint = options.mode === 'password'
     ? '本设备需要输入访问密码。'
     : options.mode === 'token'
@@ -195,6 +224,7 @@ export function renderLoginPage(options: LoginPageOptions): string {
   <h1>局域网访问</h1>
   <p class="sub">${escapeHtml(modeHint)}</p>
   ${notice(options.state, options.lockedUntilMs, now)}
+  ${pairingHint}
   <form method="post" action="/__dsh_lan_guard__/login" autocomplete="off">
     <input type="hidden" name="next" value="${escapeHtml(next)}">
     <label for="password">访问密码</label>

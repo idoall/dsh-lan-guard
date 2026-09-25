@@ -460,6 +460,9 @@ export class VisitorGate {
     const html = renderLoginPage({
       state,
       mode: this.#auth.mode,
+      // The visitor must be told that a second gate (naming) follows the
+      // password; it is only true while the pairing switch is on.
+      pairingRequired: this.#requirePairing(),
       ...(lockedUntilMs === undefined ? {} : { lockedUntilMs }),
       ...(next === undefined ? {} : { next }),
     })

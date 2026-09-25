@@ -660,7 +660,8 @@ function SettingsSection(): ReactElement {
             dangerouslySetInnerHTML: { __html: access.tokenQrSvg },
           }),
           createElement('p', { className: 'lg-hint', key: 'l' },
-            '上面的地址就是二维码内容：扫码即登录（免密链接，等同于密码）。'),
+            '上面的地址就是二维码内容：扫码即登录（免密链接，等同于密码）。'
+            + '首次访问还要给这台设备命名一次，之后才不用再问。'),
         ])
         : createElement('div', { key: 'normal-qr' }, [
           access.qrSvg === null
@@ -672,8 +673,8 @@ function SettingsSection(): ReactElement {
             }),
           createElement('p', { className: 'lg-hint', key: 'l' },
             hasPassword && !unlocked
-              ? '扫码后在手机上输入访问密码。解锁管理控制台后会改为显示免密二维码。'
-              : '扫码后在手机上输入访问密码。'),
+              ? '扫码后在手机上输入访问密码，首次访问还要给这台设备命名一次。解锁管理控制台后会改为显示免密二维码。'
+              : '扫码后在手机上输入访问密码，首次访问还要给这台设备命名一次。'),
         ])
 
   const accessTab = createElement('div', { className: 'lg-tabbody' }, [
@@ -904,7 +905,8 @@ function SettingsSection(): ReactElement {
         ]),
         createElement('p', { className: 'lg-hint', key: 'approval-hint' },
           '开启「管理员批准」后：手机完成命名 → 进入「待批准」，你在下面点「批准」它才能访问；'
-          + '「拒绝并拉黑」会让它即使知道密码、换浏览器重新配对也被拒绝。'),
+          + '「拒绝并拉黑」作废的是这台设备的身份：它在这个浏览器里会被一直拒绝，'
+          + '但清掉浏览器数据或换一个浏览器后，仍可用密码重新配对——要彻底挡住，请同时更换访问密码。'),
         snapshot.pendingCount > 0
           ? createElement('div', { className: 'lg-bar warn', key: 'pending-bar' },
             `🔔 有 ${String(snapshot.pendingCount)} 台新设备等待批准`)

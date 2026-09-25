@@ -482,3 +482,78 @@ describe('blank page regression: ?auth= must not skip pairing', () => {
     expect(JSON.parse(asset.body.toString()).error).toBe('pairing_required')
   })
 })
+
+describe('first-visit guidance: the second gate is announced', () => {
+  it('tells a visitor that naming follows the password', async () => {
+    const { port } = await harness({ auth: { requirePairing: true } })
+    const page = await requestTo(port, { path: '/', headers: { accept: 'text/html' } })
+    expect(page.status).toBe(401)
+    expect(page.body.toString()).toContain('首次访问')
+    expect(page.body.toString()).toContain('给这台设备起个名字')
+  })
+
+  it('announces it on the inert-link page too, where a login is still possible', async () => {
+    const { port } = await harness({ auth: { mode: 'password', requirePairing: true } })
+    const page = await requestTo(port, {
+      path: '/?auth=dsh_deadbeefdeadbeefdeadbeefdeadbeefdead',
+      headers: { accept: 'text/html' },
+    })
+    expect(page.status).toBe(401)
+    expect(page.body.toString()).toContain('免密链接无效')
+    expect(page.body.toString()).toContain('给这台设备起个名字')
+  })
+
+  it('stays silent when pairing is switched off, so it never promises a name page', async () => {
+    const { port } = await harness({ auth: { requirePairing: false } })
+    const page = await requestTo(port, { path: '/', headers: { accept: 'text/html' } })
+    expect(page.status).toBe(401)
+    expect(page.body.toString()).toContain('访问密码')
+    expect(page.body.toString()).not.toContain('给这台设备起个名字')
+  })
+
+  it('stays silent where a login cannot proceed at all', async () => {
+    // A gate with no password refuses everyone: naming is not the next step.
+    const { port } = await harness({ auth: { requirePairing: true } }, '')
+    const page = await requestTo(port, { path: '/', headers: { accept: 'text/html' } })
+    expect(page.status).toBe(403)
+    expect(page.body.toString()).toContain('尚未设置访问密码')
+    expect(page.body.toString()).not.toContain('给这台设备起个名字')
+  })
+})
+
+describe('login form enablement', () => {
+  /** One element's tag text, whitespace-normalised across template lines. */
+  function tag(html: string, pattern: RegExp): string {
+    return pattern.exec(html.replace(/\s+/g, ' '))?.[0] ?? ''
+  }
+
+  it('keeps the password form usable on the inert-link page', async () => {
+    // A phone that scanned a rotated/truncated link lands here; the notice tells
+    // it to type the password, so the form must actually accept one (2026-09-26).
+    const { port } = await harness({ auth: { mode: 'password', requirePairing: true } })
+    const page = await requestTo(port, {
+      path: '/?auth=dsh_deadbeefdeadbeefdeadbeefdeadbeefdead',
+      headers: { accept: 'text/html' },
+    })
+    expect(page.status).toBe(401)
+    const html = page.body.toString()
+    expect(html).toContain('免密链接无效')
+    expect(tag(html, /<input id="password"[^>]*>/)).not.toContain('disabled')
+    expect(tag(html, /<button type="submit"[^>]*>/)).not.toContain('disabled')
+
+    // ...and the password really does work from there.
+    const loggedIn = await login(port, PASSWORD, { host: `127.0.0.1:${String(port)}` })
+    expect(loggedIn.status).toBe(302)
+  })
+
+  it('still disables the form where logging in cannot help', async () => {
+    // No password configured: the gate refuses everyone, so an enabled form
+    // would be a lie. This keeps `blocked` meaningful rather than deleted.
+    const { port } = await harness({ auth: { requirePairing: true } }, '')
+    const page = await requestTo(port, { path: '/', headers: { accept: 'text/html' } })
+    expect(page.status).toBe(403)
+    const html = page.body.toString()
+    expect(html).toContain('尚未设置访问密码')
+    expect(tag(html, /<input id="password"[^>]*>/)).toContain('disabled')
+  })
+})
