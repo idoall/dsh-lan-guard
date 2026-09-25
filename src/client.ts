@@ -249,7 +249,7 @@ const CSS = `
   color:var(--dsw-alias-label-secondary,#6b7280)}
 .lg-lock .lg-input{width:100%;text-align:left}
 .lg-lock .lg-btn{margin-top:4px}
-.lg-update{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 12px}
+.lg-update{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .lg-chip{padding:3px 10px;border-radius:999px;background:var(--dsw-alias-state-success-tertiary,#ecfdf5);
   color:var(--dsw-alias-state-success-primary,#059669);font:var(--dsw-font-xxs-12,12px/18px sans-serif)}
 .lg-chip.warn{background:var(--dsw-alias-state-business-tertiary,#eff6ff);
@@ -257,7 +257,7 @@ const CSS = `
 .lg-link{color:var(--dsw-alias-label-secondary,#6b7280);text-decoration:none;
   font:var(--dsw-font-xxs-12,12px/18px sans-serif)}
 .lg-link:hover{color:var(--dsw-alias-label-primary,#1f2329)}
-.lg-update-panel{margin:0 0 12px;padding:12px;border-radius:10px;
+.lg-update-panel{margin:0;padding:12px;border-radius:10px;
   background:var(--dsw-alias-layer-2,#f1f2f4);border:1px solid var(--dsw-alias-border-l2,#e5e6eb)}
 .lg-update-title{font:var(--dsw-font-s-strong-14,500 14px/22px sans-serif);
   color:var(--dsw-alias-label-primary,#1f2329);margin-bottom:8px}
