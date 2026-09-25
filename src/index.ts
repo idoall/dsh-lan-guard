@@ -164,6 +164,7 @@ export async function startLanGuard(host: LanGuardHost, rawConfig: unknown): Pro
     auth,
     devices,
     requirePairing: () => switches.requirePairing(),
+    requireApproval: () => switches.requireApproval(),
     logger,
   })
   const upstreamAuth = new UpstreamAuth({

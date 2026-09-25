@@ -99,6 +99,14 @@ auth:
 
 Every key above can also be changed from the settings page (the non-sensitive ones are declared as volatile config fields).
 
+## Device approval and permanent ban
+
+Paired devices are listed under **Settings → 局域网访问 → 已授权设备** with three groups: **pending**, **approved** and **blocked**.
+
+- Turn on **新设备需要管理员批准** to require an explicit approval before a newly paired device is let in (off by default). A pending phone sees a "waiting for approval" page until you press **批准**.
+- **吊销并拉黑** cuts a device off permanently: its identity is blocked, and re-pairing with the access password from another browser is refused too. **解除拉黑** is the only way back.
+- This deliberately does not use device fingerprinting (which breaks whenever the browser or OS changes) — the operator decides, and the decision sticks.
+
 ## Updates
 
 The settings page shows the running version next to the newest one on npm, with a **copyable** upgrade command:

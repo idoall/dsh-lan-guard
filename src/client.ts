@@ -76,6 +76,7 @@ interface ConfigSnapshot {
     adminProtection: boolean
     allowLoopback: boolean
     requirePairing: boolean
+    requireApproval: boolean
   }
   listener: {
     listenHost: string
@@ -103,11 +104,14 @@ interface ConfigSnapshot {
   devices: {
     id: string
     label: string
+    status: 'pending' | 'approved' | 'blocked'
+    decidedAtMs: number | null
     createdAtMs: number
     lastSeenAtMs: number | null
     lastIp: string | null
     revoked: boolean
   }[]
+  pendingCount: number
   access: {
     port: number
     portFallbackFrom: number | null
@@ -250,6 +254,12 @@ const CSS = `
   background:var(--dsw-alias-layer-2,#f1f2f4);border:1px solid var(--dsw-alias-border-l2,#e5e6eb)}
 .lg-update-title{font:var(--dsw-font-s-strong-14,500 14px/22px sans-serif);
   color:var(--dsw-alias-label-primary,#1f2329);margin-bottom:8px}
+.lg-sec-title{margin:18px 0 2px;font:var(--dsw-font-s-strong-14,500 14px/22px sans-serif);
+  color:var(--dsw-alias-label-secondary,#adb2b8)}
+.lg-chip.ok,.lg-chip.wait,.lg-chip.ban{margin-left:6px}
+.lg-chip.wait{background:var(--dsw-alias-state-warn-tertiary,#3a2f16);color:var(--dsw-alias-state-warn-label,#fbbf24)}
+.lg-chip.ban{background:var(--dsw-static-red-600-a08,#ec13131f);color:var(--dsw-static-red-400,#f25a5a)}
+.lg-danger{color:var(--dsw-static-red-400,#f25a5a);border-color:var(--dsw-static-red-400,#f25a5a)}
 .lg-device{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:12px;
   padding:10px 12px;border-radius:10px;background:var(--dsw-alias-bg-base,#f1f2f4);
   border:1px solid var(--dsw-alias-border-l2,#e5e6eb)}
@@ -389,6 +399,25 @@ function SettingsSection(): ReactElement {
       setSnapshot(await loadSnapshot())
       setError(null)
       flash('已保存')
+    } catch (failure) {
+      setError((failure as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }, [flash])
+
+  /** Approve / block / unblock a device (F9). */
+  const deviceAction = useCallback(async (id: string, action: string): Promise<void> => {
+    setBusy(true)
+    try {
+      await fetch('/plugins/dsh-lan-guard/devices', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'content-type': 'application/json', accept: 'application/json' },
+        body: JSON.stringify({ action, id }),
+      })
+      setSnapshot(await loadSnapshot())
+      flash(action === 'approve' ? '已批准' : action === 'block' ? '已拉黑' : '已解除拉黑')
     } catch (failure) {
       setError((failure as Error).message)
     } finally {
@@ -720,15 +749,29 @@ function SettingsSection(): ReactElement {
 
   // ---- tab: devices (P4-g) ----------------------------------------------
   const when = (ms: number | null): string => (ms === null ? '—' : new Date(ms).toLocaleString('zh-CN'))
+  const deviceGroups = [
+    { key: 'pending', title: '待批准', list: snapshot.devices.filter(entry => entry.status === 'pending') },
+    { key: 'approved', title: '已授权', list: snapshot.devices.filter(entry => entry.status === 'approved') },
+    { key: 'blocked', title: '已拉黑', list: snapshot.devices.filter(entry => entry.status === 'blocked') },
+  ]
+  const statusChip = (status: string): ReactElement => createElement('span', {
+    className: status === 'blocked' ? 'lg-chip ban' : status === 'pending' ? 'lg-chip wait' : 'lg-chip',
+  }, status === 'blocked' ? '已拉黑' : status === 'pending' ? '待批准' : '已批准')
+  const devButton = (label: string, action: string, id: string, danger: boolean): ReactElement =>
+    createElement('button', {
+      type: 'button',
+      className: danger ? 'lg-btn secondary lg-btn-small lg-danger' : 'lg-btn lg-btn-small',
+      disabled: busy,
+      onClick: () => void deviceAction(id, action),
+    }, label)
   const devicesTab = createElement('div', { className: 'lg-tabbody' }, locked ? [lockCard] : [
     createElement(Card, {
       key: 'devices',
       title: '已授权设备',
-      subtitle: '每个设备一条独立链接，可单独吊销',
+      subtitle: '每个设备一条独立身份，可逐个批准、吊销与拉黑',
       children: [
         createElement('p', { className: 'lg-hint', key: 'explain' },
-          '手机第一次通过门禁时会显示配对页，让你给这台设备命名；命名后它就会出现在下面。'
-          + '吊销某台设备只影响那一台——不必更换总密码。'),
+          '手机第一次通过门禁时会显示配对页，让你给这台设备命名；命名后它就会出现在下面。'),
         createElement('div', { className: 'lg-toggle', key: 'pairing' }, [
           createElement('span', { key: 'l' }, '新设备需要命名确认'),
           createElement('button', {
@@ -740,29 +783,49 @@ function SettingsSection(): ReactElement {
             onClick: () => void write({ preferences: { requirePairing: !preferences.requirePairing } }),
           }, createElement('span', null)),
         ]),
+        createElement('div', { className: 'lg-toggle', key: 'approval' }, [
+          createElement('span', { key: 'l' }, '新设备需要管理员批准'),
+          createElement('button', {
+            key: 's',
+            type: 'button',
+            className: 'lg-switch',
+            'aria-checked': preferences.requireApproval,
+            disabled: busy,
+            onClick: () => void write({ preferences: { requireApproval: !preferences.requireApproval } }),
+          }, createElement('span', null)),
+        ]),
+        createElement('p', { className: 'lg-hint', key: 'approval-hint' },
+          '开启「管理员批准」后：手机完成命名 → 进入「待批准」，你在下面点「批准」它才能访问；'
+          + '「拒绝并拉黑」会让它即使知道密码、换浏览器重新配对也被拒绝。'),
+        snapshot.pendingCount > 0
+          ? createElement('div', { className: 'lg-bar warn', key: 'pending-bar' },
+            `🔔 有 ${String(snapshot.pendingCount)} 台新设备等待批准`)
+          : null,
         snapshot.devices.length === 0
           ? createElement('p', { className: 'lg-hint', key: 'empty' }, '暂无已授权设备。')
-          : createElement('div', { key: 'list' }, snapshot.devices.map(device => createElement(
-            'div',
-            { key: device.id, className: 'lg-device' },
-            [
-              createElement('div', { key: 'meta' }, [
-                createElement('div', { key: 'l', className: 'lg-device-name' }, device.label),
-                createElement('div', { key: 'd', className: 'lg-hint' },
-                  `创建 ${when(device.createdAtMs)} · 最近使用 ${when(device.lastSeenAtMs)}`
-                  + ` · 来源 ${device.lastIp ?? '—'}`),
-              ]),
-              device.revoked
-                ? createElement('span', { key: 'r', className: 'lg-pill off' }, '已吊销')
-                : createElement('button', {
-                  key: 'r',
-                  type: 'button',
-                  className: 'lg-btn secondary lg-btn-small',
-                  disabled: busy,
-                  onClick: () => void revokeDevice(device.id),
-                }, '吊销'),
-            ],
-          ))),
+          : createElement('div', { key: 'groups' }, deviceGroups
+            .filter(group => group.list.length > 0)
+            .map(group => createElement('div', { key: group.key }, [
+              createElement('div', { key: 't', className: 'lg-sec-title' },
+                `${group.title}（${String(group.list.length)}）`),
+              ...group.list.map(device => createElement('div', { key: device.id, className: 'lg-device' }, [
+                createElement('div', { key: 'meta' }, [
+                  createElement('div', { key: 'l', className: 'lg-device-name' }, [
+                    device.label,
+                    statusChip(device.status),
+                  ]),
+                  createElement('div', { key: 'd', className: 'lg-hint' },
+                    `创建 ${when(device.createdAtMs)} · 最近使用 ${when(device.lastSeenAtMs)}`
+                    + ` · 来源 ${device.lastIp ?? '—'}`),
+                ]),
+                createElement('div', { key: 'a', className: 'lg-row' },
+                  device.status === 'pending'
+                    ? [devButton('批准', 'approve', device.id, false), devButton('拒绝并拉黑', 'block', device.id, true)]
+                    : device.status === 'blocked'
+                      ? [devButton('解除拉黑', 'unblock', device.id, false)]
+                      : [devButton('吊销并拉黑', 'block', device.id, true)]),
+              ])),
+            ]))),
       ],
     }),
   ])

@@ -641,3 +641,35 @@ describe('paired devices (P4-g)', () => {
     expect(bad.status).toBe(400)
   })
 })
+
+describe('F9 device endpoints', () => {
+  it('approves, blocks and unblocks a device', async () => {
+    const harnessed = await harness()
+    const { device } = await harnessed.devices.add('待批准手机', { pending: true })
+    const listed = await requestTo(harnessed.port, { path: '/plugins/dsh-lan-guard/devices' })
+    expect(JSON.parse(listed.body.toString()).devices[0].status).toBe('pending')
+
+    const call = async (action: string): Promise<string> => {
+      const response = await requestTo(harnessed.port, {
+        method: 'POST',
+        path: '/plugins/dsh-lan-guard/devices',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ action, id: device.id }),
+      })
+      expect(response.status).toBe(200)
+      return JSON.parse(response.body.toString()).devices[0].status as string
+    }
+    expect(await call('approve')).toBe('approved')
+    expect(await call('block')).toBe('blocked')
+    expect(await call('unblock')).toBe('pending')
+  })
+
+  it('exposes pendingCount in the snapshot', async () => {
+    const harnessed = await harness()
+    await harnessed.devices.add('待批准', { pending: true })
+    const response = await requestTo(harnessed.port, { path: '/plugins/dsh-lan-guard/config' })
+    const body = JSON.parse(response.body.toString())
+    expect(body.pendingCount).toBe(1)
+    expect(body.preferences.requireApproval).toBe(false)
+  })
+})

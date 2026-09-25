@@ -42,6 +42,8 @@ export interface AuthConfigShape {
   allowLoopback: boolean
   /** Whether a new device must name itself once before it is let in (P4-g). */
   requirePairing: boolean
+  /** Whether a new device also needs an operator's approval before it is let in (F9). */
+  requireApproval: boolean
   /** Visitor session lifetime in milliseconds. */
   sessionMaxAgeMs: number
   /** Admin session lifetime in milliseconds (in-memory only, so it is deliberately short). */
@@ -152,6 +154,7 @@ export const Config: z<LanGuardConfigShape, Record<string, unknown>> = z.object(
     adminProtection: z.boolean().default(true).volatile(),
     allowLoopback: z.boolean().default(true).volatile(),
     requirePairing: z.boolean().default(true).volatile(),
+    requireApproval: z.boolean().default(false).volatile(),
     sessionMaxAgeMs: z.natural().default(2_592_000_000),
     adminSessionMaxAgeMs: z.natural().default(1_800_000),
     maxFailedAttempts: z.natural().default(5),
@@ -188,6 +191,8 @@ export interface LiveSwitches {
   allowLoopback(): boolean
   /** Whether an unnamed device must pair before it is let in. */
   requirePairing(): boolean
+  /** Whether a paired device still needs the operator's approval (F9). */
+  requireApproval(): boolean
 }
 
 /** Whether a resolved value is a volatile reference rather than a bare value. */
@@ -227,6 +232,10 @@ export function liveSwitches(rawConfig: unknown, resolved: LanGuardConfigShape):
     ),
     allowLoopback: () => readField(root.auth === undefined ? undefined : auth.allowLoopback, resolved.auth.allowLoopback),
     requirePairing: () => readField(root.auth === undefined ? undefined : auth.requirePairing, resolved.auth.requirePairing),
+    requireApproval: () => readField(
+      root.auth === undefined ? undefined : auth.requireApproval,
+      resolved.auth.requireApproval,
+    ),
   }
 }
 
@@ -241,6 +250,7 @@ export function staticSwitches(config: LanGuardConfigShape): LiveSwitches {
     adminProtection: () => config.auth.adminProtection,
     allowLoopback: () => config.auth.allowLoopback,
     requirePairing: () => config.auth.requirePairing,
+    requireApproval: () => config.auth.requireApproval,
   }
 }
 
@@ -322,7 +332,9 @@ function unwrapVolatileInput(input: unknown): unknown {
   }
   if (typeof source.auth === 'object' && source.auth !== null) {
     const auth = { ...(source.auth as Record<string, unknown>) }
-    for (const key of ['enabled', 'mode', 'adminPolicy', 'adminProtection', 'allowLoopback', 'requirePairing']) {
+    for (const key of [
+      'enabled', 'mode', 'adminPolicy', 'adminProtection', 'allowLoopback', 'requirePairing', 'requireApproval',
+    ]) {
       const value = auth[key]
       if (isVolatileLike(value)) auth[key] = (value as { get(): unknown }).get()
     }
@@ -361,6 +373,7 @@ export function parseConfig(input: unknown): LanGuardConfigShape {
       adminProtection: readField(rawAuth.adminProtection, true),
       allowLoopback: readField(rawAuth.allowLoopback, true),
       requirePairing: readField(rawAuth.requirePairing, true),
+      requireApproval: readField(rawAuth.requireApproval, false),
       sessionMaxAgeMs: readField(rawAuth.sessionMaxAgeMs, 2_592_000_000),
       adminSessionMaxAgeMs: readField(rawAuth.adminSessionMaxAgeMs, 1_800_000),
       maxFailedAttempts: readField(rawAuth.maxFailedAttempts, 5),

@@ -31,6 +31,7 @@ import { buildClearedCookie, isLoopbackAddress, passesCsrfCheck, ADMIN_COOKIE } 
 import { VISITOR_HEADER } from '../headers.ts'
 import type { AccessInfo } from '../qrcode.ts'
 import type { DeviceRecord } from '../store/secrets.ts'
+import type { DeviceStatus } from '../store/secrets.ts'
 import type { UpdateStatus } from '../update-check.ts'
 import {
   PreferenceError,
@@ -79,6 +80,10 @@ export interface AuthStatus {
 export interface DeviceView {
   id: string
   label: string
+  /** F9 state. */
+  status: DeviceStatus
+  /** When the operator approved or blocked it. */
+  decidedAtMs: number | null
   createdAtMs: number
   lastSeenAtMs: number | null
   lastIp: string | null
@@ -88,6 +93,8 @@ export interface DeviceView {
 /** The subset of {@link DeviceRegistry} the endpoints use. */
 export interface DeviceRegistryLike {
   list(): readonly DeviceRecord[]
+  add(label: string, options?: { pending?: boolean }): Promise<{ device: DeviceRecord; token: string }>
+  setStatus(id: string, status: DeviceStatus): Promise<boolean>
   revoke(id: string): Promise<boolean>
   remove(id: string): Promise<boolean>
 }
@@ -97,6 +104,8 @@ function deviceView(device: DeviceRecord): DeviceView {
   return {
     id: device.id,
     label: device.label,
+    status: device.status,
+    decidedAtMs: device.decidedAtMs,
     createdAtMs: device.createdAtMs,
     lastSeenAtMs: device.lastSeenAtMs,
     lastIp: device.lastIp,
@@ -123,6 +132,8 @@ export interface ConfigSnapshot {
   access: AccessInfo
   /** Paired devices (P4-g); tokens are never included. */
   devices: DeviceView[]
+  /** How many devices are waiting for approval (F9). */
+  pendingCount: number
   /** The passwordless link, present only for an admin-unlocked caller. */
   secretToken?: string
 }
@@ -287,6 +298,7 @@ export function registerManagementRoutes(options: ManagementRoutesOptions): () =
         adminProtection: options.switches.adminProtection(),
         allowLoopback: options.switches.allowLoopback(),
         requirePairing: options.switches.requirePairing(),
+        requireApproval: options.switches.requireApproval(),
       },
       listener: {
         listenHost: options.config.listenHost,
@@ -298,6 +310,7 @@ export function registerManagementRoutes(options: ManagementRoutesOptions): () =
       authStatus: statusOf(req),
       access: await options.access(token ?? null),
       devices: options.devices.list().map(deviceView),
+      pendingCount: options.devices.list().filter(device => device.status === 'pending').length,
     }
     if (token !== undefined) snapshot.secretToken = token
     return snapshot
@@ -531,6 +544,20 @@ export function registerManagementRoutes(options: ManagementRoutesOptions): () =
       return
     }
     try {
+      if (body.action === 'approve' || body.action === 'block' || body.action === 'unblock') {
+        if (typeof body.id !== 'string') throw new PreferenceError('id must be a string')
+        const status: DeviceStatus = body.action === 'approve'
+          ? 'approved'
+          : body.action === 'block' ? 'blocked' : 'pending'
+        const changed = await options.devices.setStatus(body.id, status)
+        sendJson(res, changed ? 200 : 404, {
+          ok: changed,
+          ...(changed ? {} : { error: 'unknown_or_unchanged_device' }),
+          devices: options.devices.list().map(deviceView),
+          pendingCount: options.devices.list().filter(device => device.status === 'pending').length,
+        })
+        return
+      }
       if (body.action === 'delete') {
         if (typeof body.id !== 'string') throw new PreferenceError('id must be a string')
         const removed = await options.devices.remove(body.id)

@@ -411,3 +411,47 @@ describe('loopback exemption', () => {
     expect(response.status).toBe(200)
   })
 })
+
+describe('F9 device approval and permanent ban', () => {
+  it('shows the waiting page to a pending device, then lets it in once approved', async () => {
+    const { runtime: started, port } = await harness({ auth: { requirePairing: true, requireApproval: true } })
+    const session = cookiePair(await login(port), 'dsh_lan_guard_session')
+    const paired = await requestTo(port, {
+      method: 'POST',
+      path: '/__dsh_lan_guard__/pair',
+      headers: {
+        'content-type': 'application/x-www-form-urlencoded',
+        host: `127.0.0.1:${String(port)}`,
+        cookie: session,
+      },
+      body: 'label=%E5%BE%85%E6%89%B9%E5%87%86%E6%89%8B%E6%9C%BA',
+    })
+    expect(paired.status).toBe(302)
+    const cookie = cookiePair(paired, 'dsh_lan_guard_device')
+
+    const waiting = await requestTo(port, { path: '/', headers: { accept: 'text/html', cookie } })
+    expect(waiting.status).toBe(403)
+    expect(waiting.body.toString()).toContain('等待管理员批准')
+    // API calls get a machine-readable code instead of the page.
+    const api = await requestTo(port, { path: '/api/x', headers: { accept: '*/*', cookie } })
+    expect(JSON.parse(api.body.toString()).error).toBe('pending_approval')
+
+    const id = started.devices.list()[0]?.id ?? ''
+    expect(await started.devices.setStatus(id, 'approved')).toBe(true)
+    const allowed = await requestTo(port, { path: '/', headers: { accept: 'text/html', cookie } })
+    expect(allowed.status).toBe(200)
+    expect(allowed.body.toString()).toContain('fake dsh index')
+  })
+
+  it('refuses a blocked device even though it still holds a valid cookie', async () => {
+    const { runtime: started, port } = await harness({ auth: { requirePairing: true } })
+    const { device, token } = await started.devices.add('旧手机')
+    await started.devices.setStatus(device.id, 'blocked')
+    const refused = await requestTo(port, {
+      path: '/',
+      headers: { accept: 'text/html', cookie: `dsh_lan_guard_device=${token}` },
+    })
+    expect(refused.status).toBe(403)
+    expect(refused.body.toString()).toContain('已被移除访问权限')
+  })
+})

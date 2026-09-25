@@ -14,6 +14,19 @@
 
 待续：`auth.requireApproval` 开关、门禁等待页与 `blocked` 拒绝、批准/拉黑/解除端点、设置页三组列表与两个开关、手机侧等待批准页。
 
+## [Unreleased]
+
+### 新增 — 设备批准与永久拉黑（SPEC F9，方案 A）
+
+「吊销」只能让设备的身份 cookie 失效；F9 让**拉黑变得永久**——不依赖设备指纹，而是把放行权交给管理员。
+
+- **三态数据模型**：`pending` / `approved` / `blocked`；F9 之前写入的记录加载时迁移为 `approved`（不打断既有设备）；
+- **开关**：`auth.requireApproval`（默认 **false**＝保持现状）；开启后新设备命名完进入「待批准」；
+- **门禁**：`pending` → 手机侧「等待管理员批准」页（`/api/*` 返回 `403 pending_approval`）；`blocked` → `403`「已被移除访问权限」，**重新配对仍被拒**（唯一出路是管理员「解除拉黑」）；
+- **端点**：`POST /plugins/dsh-lan-guard/devices` 新增 `action: approve | block | unblock`（沿用管理面鉴权、CSRF 与远程只读规则）；
+- **设置页**：「已授权设备」tab 新增第二个开关「新设备需要管理员批准」+ 三组列表（**待批准**：批准 / 拒绝并拉黑；**已授权**：吊销并拉黑；**已拉黑**：解除拉黑）+ 待批准提醒条；
+- 测试新增 4 项（待批准显示等待页且 API 返回 `pending_approval`、批准后放行、拉黑后拒绝、端点 approve/block/unblock、快照 `pendingCount`）；`pnpm test` **229 项**全绿。
+
 ## [0.2.0] — 2026-09-25
 
 ### 新增 — 升级检测（SPEC F8，方案 A）

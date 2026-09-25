@@ -48,6 +48,8 @@ export interface VisitorGateOptions {
   devices?: DeviceRegistry | undefined
   /** Whether an unnamed device must pair first (live switch). */
   requirePairing?: (() => boolean) | undefined
+  /** Whether a paired device also needs the operator's approval (F9). */
+  requireApproval?: (() => boolean) | undefined
   logger?: LanGuardLogger
 }
 
@@ -89,12 +91,14 @@ export class VisitorGate {
   readonly #auth: AuthManager
   readonly #devices: DeviceRegistry | undefined
   readonly #requirePairing: () => boolean
+  readonly #requireApproval: () => boolean
   readonly #logger: LanGuardLogger
 
   constructor(options: VisitorGateOptions) {
     this.#auth = options.auth
     this.#devices = options.devices
     this.#requirePairing = options.requirePairing ?? (() => false)
+    this.#requireApproval = options.requireApproval ?? (() => false)
     this.#logger = options.logger ?? noopLogger
   }
 
@@ -139,10 +143,15 @@ export class VisitorGate {
     // recognised by its own cookie, and revoking the record cuts it off here.
     const deviceToken = readCookie(req, DEVICE_COOKIE)
     if (deviceToken !== undefined) {
-      const device = this.#devices?.verify(deviceToken)
-      if (device === undefined) {
-        this.#logger.warn('refused a revoked or unknown device ip=%s', clientIp(req))
+      const device = this.#devices?.lookup(deviceToken)
+      if (device === undefined || device.revokedAtMs !== null || device.status === 'blocked') {
+        this.#logger.warn('refused a revoked, blocked or unknown device ip=%s', clientIp(req))
         this.#sendRemoved(req, res)
+        return 'handled'
+      }
+      if (device.status === 'pending') {
+        // Paired but not yet approved (F9): show the waiting page instead.
+        this.#sendPending(req, res)
         return 'handled'
       }
       // Bookkeeping only: a failed write must never refuse or crash a request.
@@ -185,11 +194,12 @@ export class VisitorGate {
   async verifyUpgrade(req: IncomingMessage): Promise<{ status: number; reason: string } | undefined> {
     const deviceToken = readCookie(req, DEVICE_COOKIE)
     if (deviceToken !== undefined) {
-      const device = this.#devices?.verify(deviceToken)
-      if (device === undefined) {
-        this.#logger.warn('upgrade refused: revoked device ip=%s', clientIp(req))
+      const device = this.#devices?.lookup(deviceToken)
+      if (device === undefined || device.revokedAtMs !== null || device.status === 'blocked') {
+        this.#logger.warn('upgrade refused: revoked or blocked device ip=%s', clientIp(req))
         return { status: 403, reason: 'device_revoked' }
       }
+      if (device.status === 'pending') return { status: 403, reason: 'pending_approval' }
       await this.#devices?.touch(device.id, clientIp(req)).catch(() => undefined)
       return undefined
     }
@@ -225,7 +235,9 @@ export class VisitorGate {
       this.#sendPairingPage(req, res, 'invalid')
       return
     }
-    const { device, token } = await this.#devices.add(label)
+    // F9: with approval required the device starts pending and sees the waiting
+    // page until the operator approves it in the settings page.
+    const { device, token } = await this.#devices.add(label, { pending: this.#requireApproval() })
     await this.#devices.touch(device.id, clientIp(req)).catch(() => undefined)
     const expiresAtMs = Date.now() + DEVICE_COOKIE_MAX_AGE_MS
     res.writeHead(302, {
@@ -254,6 +266,22 @@ export class VisitorGate {
       'cache-control': 'no-store',
       'referrer-policy': 'no-referrer',
       'x-content-type-options': 'nosniff',
+    })
+    res.end(html)
+  }
+
+  /** Serve the waiting page (HTML) or a JSON hint for API calls (F9). */
+  #sendPending(req: IncomingMessage, res: ServerResponse): void {
+    const url = new URL(req.url ?? '/', 'http://dsh-lan-guard.invalid')
+    if (isApiPath(url.pathname) || !wantsHtml(req)) {
+      this.#sendJson(res, 403, { ok: false, error: 'pending_approval' })
+      return
+    }
+    const html = renderLoginPage({ state: 'pending-approval', mode: this.#auth.mode })
+    res.writeHead(403, {
+      'content-type': 'text/html; charset=utf-8',
+      'cache-control': 'no-store',
+      'referrer-policy': 'no-referrer',
     })
     res.end(html)
   }

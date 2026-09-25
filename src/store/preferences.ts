@@ -22,6 +22,8 @@ export interface PreferenceValues {
   networkInterface: string
   /** Whether a new device must name itself once before it is let in. */
   requirePairing: boolean
+  /** Whether a new device also needs the operator's approval (F9). */
+  requireApproval: boolean
   mode: AuthMode
   adminPolicy: AdminPolicy
   adminProtection: boolean
@@ -31,7 +33,7 @@ export interface PreferenceValues {
 /** The switch keys, in display order. */
 export const PREFERENCE_KEYS = [
   'enabled', 'listenPort', 'networkInterface', 'mode', 'adminPolicy', 'adminProtection', 'allowLoopback',
-  'requirePairing',
+  'requirePairing', 'requireApproval',
 ] as const
 
 /** One preference key. */
@@ -60,6 +62,7 @@ export function readPreferences(config: {
     adminProtection: boolean
     allowLoopback: boolean
     requirePairing: boolean
+    requireApproval: boolean
   }
 }): PreferenceValues {
   return {
@@ -67,6 +70,7 @@ export function readPreferences(config: {
     listenPort: config.listenPort,
     networkInterface: config.networkInterface ?? '',
     requirePairing: config.auth.requirePairing,
+    requireApproval: config.auth.requireApproval,
     mode: config.auth.mode,
     adminPolicy: config.auth.adminPolicy,
     adminProtection: config.auth.adminProtection,
@@ -114,6 +118,10 @@ export function sanitizePreferencePatch(patch: unknown): Partial<PreferenceValue
     }
     result.networkInterface = value
   }
+  if (Object.hasOwn(source, 'requireApproval')) {
+    if (typeof source.requireApproval !== 'boolean') throw new PreferenceError('requireApproval must be a boolean')
+    result.requireApproval = source.requireApproval
+  }
   if (Object.hasOwn(source, 'requirePairing')) {
     if (typeof source.requirePairing !== 'boolean') throw new PreferenceError('requirePairing must be a boolean')
     result.requirePairing = source.requirePairing
@@ -155,6 +163,7 @@ export function toSettingsPatch(values: Partial<PreferenceValues>): Record<strin
   if (values.listenPort !== undefined) patch.listenPort = values.listenPort
   if (values.networkInterface !== undefined) patch.networkInterface = values.networkInterface
   if (values.requirePairing !== undefined) auth.requirePairing = values.requirePairing
+  if (values.requireApproval !== undefined) auth.requireApproval = values.requireApproval
   if (values.mode !== undefined) auth.mode = values.mode
   if (values.adminPolicy !== undefined) auth.adminPolicy = values.adminPolicy
   if (values.adminProtection !== undefined) auth.adminProtection = values.adminProtection
