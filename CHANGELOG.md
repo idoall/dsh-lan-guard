@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.3.1] — 2026-09-25
+
+### 适配 — DSH `0.1.7-rc.2` 验证版（代码零改动）
+
+用户把 DSH 升级到 `0.1.7-rc.2`，按 `docs/RESEARCH.md` §8 清单复核后确认**本插件无需源码改动**：
+
+- 依赖的宿主/客户端接口全部存在且未变：`webServer.register` / `indexTaps`、`connection.requestRejection`、`connection.authenticatedUrl`、追加型 `settings.section` 与 `shell.overlay` seat、`@deepseek-ai/schemastery@3.18.4`；
+- 在 `0.1.7-rc.2` 上端到端跑通（设置页、扫码访问、门禁、代理）；
+- `dsh.compatibility.dshReleases` 增加 `0.1.7-rc.2: compatible`（保留 `0.1.7-rc.1`）；`dsh.engines.dsh` 保持 `>=0.1.7-rc.1 <0.2.0`（按 semver 预发布规则本就接纳 rc.2，放宽只会接纳未测试版本）；
+- **README 中英双语兼容表重写**：补上 `0.1.0 → 0.3.1` 的完整版本对应历史，并把「当前已验证的最新 DSH 版本」更新为 `0.1.7-rc.2`；
+- `docs/RESEARCH.md` 新增 §8.9 记录本次复核。
+
+`pnpm test` 228 项全绿。
+
 ## [0.3.0] — 2026-09-25
 
 ### 修复 — 设备操作按钮折行

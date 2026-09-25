@@ -57,20 +57,25 @@ Then restart DSH once (the plugin's server half is loaded at startup) and open *
 
 ## Compatibility
 
-Current release: plugin **`0.1.0`** is verified against DeepSeek Harness **`0.1.7-rc.1`** (the latest release candidate).
+Current release: plugin **`0.3.1`** is verified against DeepSeek Harness **`0.1.7-rc.2`** (the latest release candidate).
 
 ### Which plugin version goes with which DeepSeek Harness version
 
 | Plugin | Verified DeepSeek Harness | On npm | What that version is |
 | --- | --- | --- | --- |
-| **`0.1.0`** | `0.1.7-rc.1` | `latest` | First release: gated reverse proxy, self-signed HTTPS, device pairing, settings UI, QR access |
+| **`0.3.1`** | **`0.1.7-rc.2`**, `0.1.7-rc.1` | `latest` | Verification release for DSH `0.1.7-rc.2`: no code change — compatibility metadata and this table updated |
+| `0.3.0` | `0.1.7-rc.1` | published | Device approval and permanent ban (F9); fixed the blank page when opening a shared `?auth=` link |
+| `0.2.0` | `0.1.7-rc.1` | published | Update detection; removed the bottom-right status pill; spacing fix |
+| `0.1.1` | `0.1.7-rc.1` | published | Documentation release: bilingual user README |
+| `0.1.0` | `0.1.7-rc.1` | published | First release: gated reverse proxy, self-signed HTTPS, device pairing, settings UI, QR access |
 
-- The declared range is `>=0.1.7-rc.1 <0.2.0` (`dsh.engines.dsh`), and `dsh.compatibility.dshReleases` records `0.1.7-rc.1: compatible`.
+- The declared range is `>=0.1.7-rc.1 <0.2.0` (`dsh.engines.dsh`), and `dsh.compatibility.dshReleases` records **`0.1.7-rc.2: compatible`** and `0.1.7-rc.1: compatible`.
+- **How `0.3.1` was verified on `0.1.7-rc.2`**: every host/client surface this plugin uses is present and unchanged — `webServer.register` / `indexTaps`, `connection.requestRejection`, `connection.authenticatedUrl`, the additive `settings.section` and `shell.overlay` seats, and `@deepseek-ai/schemastery` — and the plugin runs end-to-end (settings page, QR access, gate, proxy) on that release. No source change was required.
 - A DSH release that is not listed is **unverified** — test it before trusting it.
 - Install a specific version when it matters:
 
   ```sh
-  dsh plugin --profile web add dsh-lan-guard@0.1.0
+  dsh plugin --profile web add dsh-lan-guard@0.3.1
   ```
 
 ## Configuration

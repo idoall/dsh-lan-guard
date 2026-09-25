@@ -57,20 +57,25 @@ dsh plugin --profile web add dsh-lan-guard
 
 ## 兼容性
 
-当前版本：插件 **`0.1.0`** 已在 DeepSeek Harness **`0.1.7-rc.1`**（最新候选版本）上验证通过。
+当前版本：插件 **`0.3.1`** 已在 DeepSeek Harness **`0.1.7-rc.2`**（最新候选版本）上验证通过。
 
 ### 插件版本与 DeepSeek Harness 版本的对应
 
 | 插件 | 已验证的 DeepSeek Harness | npm 上 | 这个版本是什么 |
 | --- | --- | --- | --- |
-| **`0.1.0`** | `0.1.7-rc.1` | `latest` | 首个版本：门禁反向代理、自签 HTTPS、设备配对、设置页、扫码访问 |
+| **`0.3.1`** | **`0.1.7-rc.2`**、`0.1.7-rc.1` | `latest` | 针对 DSH `0.1.7-rc.2` 的验证版：**代码零改动**，只更新兼容元数据与本表 |
+| `0.3.0` | `0.1.7-rc.1` | 已发布 | 设备批准与永久拉黑（F9）；修掉打开分享的 `?auth=` 链接时的空白页 |
+| `0.2.0` | `0.1.7-rc.1` | 已发布 | 升级检测；移除右下角状态胶囊；间距修复 |
+| `0.1.1` | `0.1.7-rc.1` | 已发布 | 文档版：中英双语用户 README |
+| `0.1.0` | `0.1.7-rc.1` | 已发布 | 首个版本：门禁反向代理、自签 HTTPS、设备配对、设置页、扫码访问 |
 
-- 声明范围 `>=0.1.7-rc.1 <0.2.0`（`dsh.engines.dsh`），`dsh.compatibility.dshReleases` 记录 `0.1.7-rc.1: compatible`。
+- 声明范围 `>=0.1.7-rc.1 <0.2.0`（`dsh.engines.dsh`），`dsh.compatibility.dshReleases` 记录 **`0.1.7-rc.2: compatible`** 与 `0.1.7-rc.1: compatible`。
+- **`0.3.1` 在 `0.1.7-rc.2` 上的验证方式**：本插件用到的宿主/客户端接口全部存在且未变——`webServer.register` / `indexTaps`、`connection.requestRejection`、`connection.authenticatedUrl`、追加型 `settings.section` 与 `shell.overlay` seat，以及 `@deepseek-ai/schemastery`——并在该版本上端到端跑通（设置页、扫码访问、门禁、代理）。**无需任何源码改动。**
 - 未列入的 DSH 版本属**未验证**——请自行验证后再使用。
 - 需要锁定版本时：
 
   ```sh
-  dsh plugin --profile web add dsh-lan-guard@0.1.0
+  dsh plugin --profile web add dsh-lan-guard@0.3.1
   ```
 
 ## 配置

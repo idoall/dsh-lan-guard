@@ -707,3 +707,20 @@ CHANGELOG：*"Add an Own reverse proxy provider under Remote → Self-hosted for
 - 本机安装包：`.../node_modules/@deepseek-ai/dsh-*/lib/*.js`（行号见正文）
 - 上游源码副本：`/Users/lionm5/my_project/_dsh/deepseek-harness`（tag 对照用 `git show`）
 - 完整调研报告：`/Users/lionm5/my_project/_dsh/dsh-lan-access-research.md`
+
+---
+
+## 8.9 DSH `0.1.7-rc.2` 复核（2026-09-25）
+
+用户升级到 `dsh@0.1.7-rc.2` 后按 §8 清单复核，结论：**本插件无需任何源码改动**。
+
+| 核对项 | 结果 |
+| --- | --- |
+| `@deepseek-ai/dsh-host-webserver` | `0.1.7-rc.2`；`register()` 与 `indexTaps` 仍在（源码命中 7 处） |
+| `@deepseek-ai/dsh-client-connection` | `0.1.7-rc.2`；`authenticatedUrl`、`requestRejection` 仍在 |
+| `@deepseek-ai/dsh-client-ui-settings` | `0.1.7-rc.2`；追加型 `settings.section` seat 仍可用 |
+| `@deepseek-ai/schemastery` | `3.18.4`（未变） |
+| 运行态端到端 | 插件在 rc.2 下正常：设置页渲染、`/update` 端点、门禁与代理均工作 |
+
+`dsh.compatibility.dshReleases` 因此增加 `0.1.7-rc.2: compatible`（保留 `0.1.7-rc.1`）。
+`dsh.engines.dsh` **不放宽**：`>=0.1.7-rc.1 <0.2.0` 按 node-semver 预发布规则本就接纳 `0.1.7-rc.2`，放宽只会额外接纳未测试版本。
