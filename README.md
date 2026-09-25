@@ -135,10 +135,11 @@ The plugin reads its config from its Cordis entry. **Every key has a usable defa
 
 ## Compatibility
 
-Current repository version: plugin **`0.3.1`**, verified on DeepSeek Harness **`0.1.7-rc.2`**.
+Current version: plugin **`0.3.2`**, verified on DeepSeek Harness **`0.1.7-rc.2`**.
 
 | Plugin | Verified DeepSeek Harness | What this version is |
 | --- | --- | --- |
+| **`0.3.2`** | **`0.1.7-rc.2`**, `0.1.7-rc.1` | Install and go: LAN-facing default + derived `dataDir`; Liquid Glass settings page at official sizes; single-line scrolling access URL |
 | **`0.3.1`** | **`0.1.7-rc.2`**, `0.1.7-rc.1` | Verification release for `0.1.7-rc.2`: no code change, only compatibility metadata |
 | `0.3.0` | `0.1.7-rc.1` | Device approval and permanent blocking; fixed the blank page when opening a shared `?auth=` link |
 | `0.2.0` | `0.1.7-rc.1` | Update check; removed the corner status pill; spacing fixes |
@@ -147,7 +148,7 @@ Current repository version: plugin **`0.3.1`**, verified on DeepSeek Harness **`
 
 - Declared range `>=0.1.7-rc.1 <0.2.0` (`dsh.engines.dsh`); DSH versions not listed are **unverified** — verify them yourself before use.
 - Host/client interfaces this plugin uses: `webServer.register` / `indexTaps`, `connection.requestRejection`, `connection.authenticatedUrl`, the additive `settings.section` seat, `@deepseek-ai/schemastery`, and `profileContext` (for deriving the default data directory).
-- **The repository contains unreleased changes** (see the `Unreleased` section of the [CHANGELOG](CHANGELOG.md)): LAN-facing default `0.0.0.0`, the settings-page "LAN / this machine only" switch, and automatic `dataDir` derivation. **npm's `0.3.1` still defaults to `127.0.0.1` and has no listen-scope switch.**
+- **Breaking default change (from `0.3.2`)**: `listenHost` now defaults to `0.0.0.0` instead of `127.0.0.1`, so one restart after install is enough; `0.3.1` and earlier default to loopback only. The gate and self-signed TLS defaults are unchanged (with no password the gate still refuses every device). See the [CHANGELOG](CHANGELOG.md).
 
 The official UI is reused with zero modifications and adapts on a phone viewport:
 

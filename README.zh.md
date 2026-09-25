@@ -135,10 +135,11 @@ dsh plugin --profile web add "link:$(pwd)"
 
 ## 兼容性
 
-当前仓库版本：插件 **`0.3.1`** 已在 DeepSeek Harness **`0.1.7-rc.2`** 上验证。
+当前版本：插件 **`0.3.2`** 已在 DeepSeek Harness **`0.1.7-rc.2`** 上验证。
 
 | 插件 | 已验证的 DeepSeek Harness | 这个版本是什么 |
 | --- | --- | --- |
+| **`0.3.2`** | **`0.1.7-rc.2`**、`0.1.7-rc.1` | 装完即用：默认对外监听 + `dataDir` 自动推导；设置页液体玻璃与官方尺寸；访问地址改为单行滚动 |
 | **`0.3.1`** | **`0.1.7-rc.2`**、`0.1.7-rc.1` | 针对 `0.1.7-rc.2` 的验证版：代码零改动，只更新兼容元数据 |
 | `0.3.0` | `0.1.7-rc.1` | 设备批准与永久拉黑；修掉打开分享的 `?auth=` 链接时的空白页 |
 | `0.2.0` | `0.1.7-rc.1` | 升级检测；移除右下角状态胶囊；间距修复 |
@@ -147,7 +148,7 @@ dsh plugin --profile web add "link:$(pwd)"
 
 - 声明范围 `>=0.1.7-rc.1 <0.2.0`（`dsh.engines.dsh`）；未列入的 DSH 版本属**未验证**，请自行验证后再使用。
 - 本插件用到的宿主/客户端接口：`webServer.register` / `indexTaps`、`connection.requestRejection`、`connection.authenticatedUrl`、追加型 `settings.section` seat、`@deepseek-ai/schemastery`，以及 `profileContext`（用于推导默认数据目录）。
-- **仓库当前包含尚未发布的改动**（见 [CHANGELOG](CHANGELOG.md) 的 `Unreleased` 段）：默认对外监听 `0.0.0.0`、设置页「局域网 / 仅本机」开关、`dataDir` 自动推导。**npm 上的 `0.3.1` 仍是默认 `127.0.0.1`，且设置页没有监听范围开关。**
+- **破坏性默认值变更（`0.3.2` 起）**：`listenHost` 默认由 `127.0.0.1` 改为 `0.0.0.0`，装完重启一次即可用；`0.3.1` 及更早默认仅回环。门禁与自签 TLS 的默认值未变（未设密码仍拒绝所有设备）。详见 [CHANGELOG](CHANGELOG.md)。
 
 官方 UI 零改动复用，手机视口下自动适配：
 
