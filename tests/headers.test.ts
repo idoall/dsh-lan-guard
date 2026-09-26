@@ -90,8 +90,7 @@ describe('buildUpstreamRequestHeaders', () => {
     expect(JSON.stringify(headers)).not.toContain('visitor-secret')
   })
 
-  it('drops every hop-by-hop request header on a plain request', () => {
-    const headers = buildUpstreamRequestHeaders({
+  it('drops every hop-by-hop request header on a plain request', () => {    const headers = buildUpstreamRequestHeaders({
       headers: {
         host: '192.168.1.5:3445',
         connection: 'keep-alive',
@@ -104,6 +103,43 @@ describe('buildUpstreamRequestHeaders', () => {
     })
     for (const name of HOP_BY_HOP_HEADERS) expect(headers[name]).toBeUndefined()
     expect(headers.accept).toBe('*/*')
+  })
+
+  it('relays ONLY the named plugin cookie alongside the injected one', () => {
+    const headers = buildUpstreamRequestHeaders({
+      headers: {
+        host: '192.168.1.5:3445',
+        cookie: 'dsh_lan_guard_session=gate-secret; dsh_lan_guard_admin=admin-token; theme=dark',
+      },
+      authority: AUTHORITY,
+      upstreamCookie: 'dsh-auth-abc=v1.payload.sig',
+      relayCookieNames: ['dsh_lan_guard_admin'],
+    })
+    // The injected upstream cookie is still the only DSH credential, and the
+    // plugin's own admin session travels with it — without that the management
+    // route behind the proxy could never see an unlock.
+    expect(headers.cookie).toBe('dsh-auth-abc=v1.payload.sig; dsh_lan_guard_admin=admin-token')
+    expect(JSON.stringify(headers)).not.toContain('gate-secret')
+    expect(JSON.stringify(headers)).not.toContain('theme=dark')
+  })
+
+  it('relays nothing extra when the visitor holds no such cookie', () => {
+    const headers = buildUpstreamRequestHeaders({
+      headers: { host: '192.168.1.5:3445', cookie: 'dsh_lan_guard_session=gate-secret' },
+      authority: AUTHORITY,
+      upstreamCookie: 'dsh-auth-abc=v1.payload.sig',
+      relayCookieNames: ['dsh_lan_guard_admin'],
+    })
+    expect(headers.cookie).toBe('dsh-auth-abc=v1.payload.sig')
+  })
+
+  it('relays nothing at all without an injected cookie', () => {
+    const headers = buildUpstreamRequestHeaders({
+      headers: { host: '192.168.1.5:3445', cookie: 'dsh_lan_guard_admin=admin-token' },
+      authority: AUTHORITY,
+      relayCookieNames: ['dsh_lan_guard_admin'],
+    })
+    expect(headers.cookie).toBeUndefined()
   })
 
   it('keeps connection/upgrade and the websocket handshake headers for an upgrade', () => {
@@ -169,6 +205,21 @@ describe('buildUpstreamResponseHeaders', () => {
       'set-cookie': ['dsh-auth-abc=v1.payload.sig; HttpOnly', 'other=1'],
     })
     expect(JSON.stringify(headers)).not.toContain('dsh-auth-abc')
+  })
+
+  it('relays ONLY the named plugin cookie back to the browser', () => {
+    const headers = buildUpstreamResponseHeaders({
+      'set-cookie': [
+        'dsh-auth-abc=v1.payload.sig; HttpOnly',
+        'dsh_lan_guard_admin=fresh-token; Max-Age=1800; Path=/; HttpOnly; SameSite=Strict',
+        'tracker=1',
+      ],
+    }, ['dsh_lan_guard_admin'])
+    expect(headers['set-cookie']).toEqual([
+      'dsh_lan_guard_admin=fresh-token; Max-Age=1800; Path=/; HttpOnly; SameSite=Strict',
+    ])
+    expect(JSON.stringify(headers)).not.toContain('dsh-auth-abc')
+    expect(JSON.stringify(headers)).not.toContain('tracker')
   })
 })
 

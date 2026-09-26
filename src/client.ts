@@ -21,14 +21,16 @@
  * origin — the management surface, guarded by DSH's native fence. That is a
  * different auth surface from the proxy port's visitor gate.
  */
-import { createElement, useCallback, useEffect, useState, type ReactElement } from 'react'
+import { createElement, useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
+import { applyDirectoryFlow } from './client/workspace-flow.ts'
+import { CONFIG_PATH as CONFIG_PATH_FROM_PICKER } from './client/picker-logic.ts'
 
 /** Plugin id: also the Loader entry id and the settings namespace. */
 const PLUGIN_ID = 'dsh-lan-guard'
 /** The official additive settings seat. */
 const SEAT = 'settings.section'
 /** The management endpoint on DSH's own origin. */
-const CONFIG_PATH = '/plugins/dsh-lan-guard/config'
+const CONFIG_PATH = CONFIG_PATH_FROM_PICKER
 
 /** The four credential modes offered by the big-card selector. */
 const MODE_CHOICES: readonly { id: string; title: string; detail: string }[] = [
@@ -229,9 +231,69 @@ const CSS = `
 .lg-bar .lg-btn{flex:0 0 auto;white-space:nowrap;height:32px;padding:0 12px;
   font:var(--dsw-font-xs-13,13px/20px sans-serif);font-weight:400}
 .lg-bar-compact{margin-top:0;padding:6px 10px}
-.lg-bar.info{background:var(--dsw-alias-state-business-tertiary,#e8f0fe);color:var(--dsw-alias-state-business-primary,#1a3f8f)}
-.lg-bar.warn{background:var(--dsw-alias-state-warn-tertiary,#fffbeb);color:var(--dsw-alias-state-warn-label,#92400e)}
-.lg-bar.danger{background:var(--dsw-alias-interactive-bg-hover-danger,#fef2f2);color:var(--dsw-alias-state-error-primary,#b91c1c)}
+/*
+ * COLOUR RULE FOR EVERY STATUS SURFACE (toast, bar, chip).
+ *
+ * Measured against DSH 0.1.7's real palette, in BOTH themes (the alias values
+ * come from @deepseek-ai/dsh-client-ui-theme):
+ *
+ *   business-primary on business-tertiary   light 3.60:1  dark 4.39:1   <- fails AA
+ *   error-primary    on a 5% hover tint     light ~3:1    dark 3.68:1   <- fails AA
+ *   label-primary    on the same surfaces   light 16:1    dark 9.8:1    <- passes
+ *
+ * Two consequences, applied everywhere below:
+ *  1. TEXT is always --dsw-alias-label-primary. A semantic colour is used for
+ *     the ICON and the BORDER, where 3:1 is the bar (WCAG 1.4.11), not 4.5:1.
+ *  2. A hover TINT is never a surface. --dsw-alias-interactive-bg-hover-danger
+ *     resolves to an 8-digit colour with alpha 0x0d (5%), so it is a wash over
+ *     whatever sits behind it, not a background. Danger surfaces mix the
+ *     semantic colour into bg-layer-1 instead, which stays opaque in both
+ *     themes; the solid declaration comes first so an engine without color-mix
+ *     keeps a plain, legible token surface.
+ */
+.lg-bar.info{background:var(--dsw-alias-state-business-tertiary,#e8f0fe);color:var(--dsw-alias-label-primary,#1f2329)}
+.lg-bar.warn{background:var(--dsw-alias-state-warn-tertiary,#fffbeb);color:var(--dsw-alias-label-primary,#1f2329)}
+.lg-bar.danger{background:var(--dsw-alias-bg-layer-2,#fef2f2);color:var(--dsw-alias-label-primary,#1f2329);
+  background:color-mix(in srgb, var(--dsw-alias-state-error-primary,#b91c1c) 12%, var(--dsw-alias-bg-layer-1,#fff))}
+/*
+ * Transient confirmations live in a FIXED top-right stack, not in the page
+ * flow. A bar above the tabs pushed every control down for two seconds, so a
+ * save made at the bottom of a long tab looked like the page had jumped and
+ * gave no clue whether anything had been saved (user feedback 2026-09-26).
+ * A fixed position costs no layout, and pointer-events keeps the empty stack
+ * from swallowing clicks on whatever sits underneath it.
+ *
+ * The toast is a NOTIFICATION, not a pill: a content-sized pill around two
+ * characters is easy to miss (same feedback round), so it has a real minimum
+ * width, a leading icon, its own close button and a countdown bar. The bar's
+ * duration is injected from TOAST_MS, so the animation and the dismissal timer
+ * can never disagree.
+ */
+.lg-toasts{position:fixed;top:16px;right:16px;z-index:2147483001;display:flex;flex-direction:column;gap:8px;
+  align-items:flex-end;pointer-events:none;max-width:min(360px,calc(100vw - 32px))}
+.lg-toast{pointer-events:auto;box-sizing:border-box;position:relative;overflow:hidden;
+  min-width:min(240px,calc(100vw - 32px));padding:12px 14px 14px;border-radius:12px;
+  border:1px solid var(--dsw-alias-border-l2,#e5e6eb);box-shadow:0 8px 24px color-mix(in srgb, #000 18%, transparent);
+  font:var(--dsw-font-s-14,14px/22px sans-serif);animation:lg-toast-in .16s ease-out}
+@keyframes lg-toast-in{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){.lg-toast{animation:none}}
+.lg-toast-row{display:flex;align-items:center;gap:10px}
+.lg-toast-icon{flex:0 0 auto;font-size:15px;line-height:1}
+.lg-toast-text{flex:1 1 auto;min-width:0;overflow-wrap:anywhere}
+.lg-toast.info{background:var(--dsw-alias-state-business-tertiary,#e8f0fe);color:var(--dsw-alias-label-primary,#1f2329)}
+.lg-toast.info .lg-toast-icon{color:var(--dsw-alias-state-business-primary,#1a3f8f)}
+.lg-toast.danger{background:var(--dsw-alias-bg-layer-2,#fef2f2);color:var(--dsw-alias-label-primary,#1f2329);
+  background:color-mix(in srgb, var(--dsw-alias-state-error-primary,#b91c1c) 12%, var(--dsw-alias-bg-layer-1,#fff));
+  border-color:color-mix(in srgb, var(--dsw-alias-state-error-primary,#b91c1c) 38%, transparent)}
+.lg-toast.danger .lg-toast-icon{color:var(--dsw-alias-state-error-primary,#b91c1c)}
+.lg-toast-x{flex:0 0 auto;border:0;background:transparent;color:inherit;cursor:pointer;opacity:.7;
+  font-size:14px;line-height:1;padding:4px 6px;border-radius:6px}
+.lg-toast-x:hover{opacity:1}
+/* Countdown for an auto-dismissing toast; the duration is set on the element. */
+.lg-toast-bar{position:absolute;left:0;bottom:0;height:2px;width:100%;background:currentColor;opacity:.4;
+  animation-name:lg-toast-shrink;animation-timing-function:linear;animation-fill-mode:forwards}
+@keyframes lg-toast-shrink{from{width:100%}to{width:0}}
+@media (prefers-reduced-motion:reduce){.lg-toast-bar{display:none}}
 .lg-mono-sm{font:var(--dsw-font-xxs-12,12px/18px sans-serif)}
 .lg-mono{margin-top:14px;padding:10px 12px;border-radius:12px;background:var(--dsw-alias-bg-base,#f1f2f4);
   border:1px solid var(--dsw-alias-border-l2,#e5e6eb);
@@ -346,7 +408,7 @@ const CSS = `
 .lg-sec-title{margin:18px 0 2px;font:var(--dsw-font-s-strong-14,500 14px/22px sans-serif);
   color:var(--dsw-alias-label-secondary,#adb2b8)}
 .lg-chip.ok,.lg-chip.wait,.lg-chip.ban{margin-left:5px;flex-shrink:0}
-.lg-chip.wait{background:var(--dsw-alias-state-warn-tertiary,#3a2f16);color:var(--dsw-alias-state-warn-label,#fbbf24)}
+.lg-chip.wait{background:var(--dsw-alias-state-warn-tertiary,#3a2f16);color:var(--dsw-alias-label-primary,#1f2329)}
 .lg-chip.ban{background:var(--dsw-static-red-600-a08,#ec13131f);color:var(--dsw-static-red-400,#f25a5a)}
 .lg-danger{color:var(--dsw-static-red-400,#f25a5a);border-color:var(--dsw-static-red-400,#f25a5a)}
 .lg-device{display:block;margin-top:12px;padding:10px 12px;border-radius:var(--dsw-radius-md,12px);
@@ -392,9 +454,37 @@ async function postConfig(body: Record<string, unknown>): Promise<ConfigSnapshot
   return parsed
 }
 
+/**
+ * Turn a management refusal into something the operator can act on.
+ *
+ * The host answers with stable codes; showing `read_only_remote` to a person
+ * holding a phone is not an explanation. Anything unrecognised is passed through
+ * unchanged, so a new code is still visible instead of being swallowed.
+ *
+ * @param raw - the error text from the management endpoint.
+ * @returns the line the toast shows.
+ */
+function settingsErrorText(raw: string): string {
+  switch (raw) {
+    case 'read_only_remote':
+      return '当前策略是「仅本机」：远程设备只读，请在电脑上修改'
+    case 'admin_required':
+      return '需要先解锁管理控制台（「安全认证」里输入管理密码）'
+    case 'admin_password_invalid':
+      return '管理密码不正确'
+    case 'csrf':
+      return '请求被跨站校验拒绝，刷新页面后重试'
+    case 'current_password_required':
+      return '需要先填写当前密码'
+    case 'gate_disabled_requires_loopback':
+      return '关闭门禁时必须把监听范围改回「仅本机」'
+    default:
+      return raw
+  }
+}
+
 /** One card. */
-function Card(props: { title?: string; subtitle?: string; right?: ReactElement | null; children?: unknown }): ReactElement {
-  // A card without a title renders no header at all: the lock card is a single
+function Card(props: { title?: string; subtitle?: string; right?: ReactElement | null; children?: unknown }): ReactElement {  // A card without a title renders no header at all: the lock card is a single
   // centred block, and a header plus a centred heading duplicated the same
   // sentence (user feedback 2026-09-24).
   return createElement('section', { className: 'lg-card' }, [
@@ -469,10 +559,31 @@ function SettingsSection(): ReactElement {
 
   // A transient confirmation: a permanent bar costs a whole row of the page
   // for information that is stale a second later (user feedback 2026-09-24).
-  const flash = useCallback((message: string): void => {
-    setNotice(message)
-    setTimeout(() => setNotice(null), 2500)
+  //
+  // ONE timer, always replaced. Without clearing the previous timeout a second
+  // save inside the window would be dismissed early by the FIRST timer — the
+  // toast would vanish in a few hundred milliseconds, which is exactly the
+  // "did it even save?" doubt this whole component exists to remove.
+  const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const clearNoticeTimer = useCallback((): void => {
+    if (noticeTimer.current !== null) {
+      clearTimeout(noticeTimer.current)
+      noticeTimer.current = null
+    }
   }, [])
+  const dismissNotice = useCallback((): void => {
+    clearNoticeTimer()
+    setNotice(null)
+  }, [clearNoticeTimer])
+  const flash = useCallback((message: string): void => {
+    clearNoticeTimer()
+    setNotice(message)
+    noticeTimer.current = setTimeout(() => {
+      noticeTimer.current = null
+      setNotice(null)
+    }, TOAST_MS)
+  }, [clearNoticeTimer])
+  useEffect(() => clearNoticeTimer, [clearNoticeTimer])
 
   const refresh = useCallback(async (): Promise<void> => {
     try {
@@ -851,6 +962,35 @@ function SettingsSection(): ReactElement {
             onClick: () => void write({ preferences: { allowLoopback: !preferences.allowLoopback } }),
           }, createElement('span', null)),
         ]),
+        // The management policy had NO control at all until 2026-09-26: the
+        // host accepted the write and the README promised the switch, but
+        // POLICY_CHOICES was dead code, so `adminPolicy` could only be changed
+        // by hand-editing the profile patch. It is load-bearing for the remote
+        // workspace picker, which needs `password_unlock` or `open` to serve a
+        // LAN device at all.
+        createElement('div', { className: 'lg-field', key: 'policy' }, [
+          createElement('span', { className: 'lg-label', key: 'l' }, '远程设备管理权限'),
+          createElement('p', { className: 'lg-hint', key: 'd' },
+            '「仅本机」下局域网设备只读；想让它们在手机上浏览目录并添加工作区，选「密码解锁」（需先解锁）或「不锁定」。'),
+          createElement(ChoiceGrid, {
+            key: 'g',
+            choices: POLICY_CHOICES,
+            value: preferences.adminPolicy,
+            disabled: busy,
+            onPick: (id: string) => void write({ preferences: { adminPolicy: id } }),
+          }),
+        ]),
+        createElement('div', { className: 'lg-toggle', key: 'admin-protection' }, [
+          createElement('span', { key: 'l' }, '管理操作需要先解锁'),
+          createElement('button', {
+            key: 's',
+            type: 'button',
+            className: 'lg-switch',
+            'aria-checked': preferences.adminProtection,
+            disabled: busy,
+            onClick: () => void write({ preferences: { adminProtection: !preferences.adminProtection } }),
+          }, createElement('span', null)),
+        ]),
         createElement('p', { className: 'lg-hint', key: 'h' },
           '密码仅以 PBKDF2-SHA256 哈希存储于插件私有目录，绝不写入配置文件，也不会回显。'),
       ],
@@ -1189,8 +1329,56 @@ function SettingsSection(): ReactElement {
 
   return createElement('div', { className: 'lg-root' }, [
     createElement('style', { key: 'css' }, CSS),
-    error === null ? null : createElement('div', { className: 'lg-bar danger', key: 'err' }, error),
-    notice === null ? null : createElement('div', { className: 'lg-bar info', key: 'ok' }, notice),
+    // Feedback is a fixed top-right toast: it costs no layout, so a save at the
+    // bottom of a long tab no longer makes the page jump.
+    (error === null && notice === null)
+      ? null
+      : createElement('div', { className: 'lg-toasts', key: 'toasts' }, [
+        error === null ? null : createElement('div', {
+          className: 'lg-toast danger',
+          role: 'alert',
+          key: 'err',
+        }, [
+          createElement('div', { className: 'lg-toast-row', key: 'row' }, [
+            createElement('span', { className: 'lg-toast-icon', key: 'i' }, '⚠'),
+            createElement('span', { className: 'lg-toast-text', key: 't' }, settingsErrorText(error)),
+            createElement('button', {
+              key: 'x',
+              type: 'button',
+              className: 'lg-toast-x',
+              'aria-label': '关闭',
+              onClick: () => {
+                setError(null)
+              },
+            }, '✕'),
+          ]),
+        ]),
+        notice === null ? null : createElement('div', {
+          className: 'lg-toast info',
+          role: 'status',
+          key: 'ok',
+        }, [
+          createElement('div', { className: 'lg-toast-row', key: 'row' }, [
+            createElement('span', { className: 'lg-toast-icon', key: 'i' }, '✓'),
+            createElement('span', { className: 'lg-toast-text', key: 't' }, notice),
+            createElement('button', {
+              key: 'x',
+              type: 'button',
+              className: 'lg-toast-x',
+              'aria-label': '关闭',
+              onClick: dismissNotice,
+            }, '✕'),
+          ]),
+          // The countdown bar is decorative: the close button is the accessible
+          // way out, so screen readers get no second "progress" element.
+          createElement('span', {
+            className: 'lg-toast-bar',
+            key: 'bar',
+            'aria-hidden': true,
+            style: { animationDuration: `${String(TOAST_MS)}ms` },
+          }),
+        ]),
+      ].filter(Boolean) as ReactElement[]),
     unlockBanner,
     readOnlyBanner,
     updateChip,
@@ -1206,6 +1394,15 @@ function SettingsSection(): ReactElement {
 const DEFAULT_PORT_HINT = 3081
 
 /**
+ * How long a transient confirmation stays on screen.
+ *
+ * The single source of truth: the countdown bar's `animation-duration` is
+ * injected from this value, so the bar can never outlive (or predecease) the
+ * dismissal timer.
+ */
+const TOAST_MS = 2600
+
+/**
  * Register the settings section.
  *
  * @param ctx - the client plugin context (injects `slots`).
@@ -1215,12 +1412,18 @@ export function apply(ctx: {
     inject(seat: string, callback: () => unknown): unknown
     register(options: Record<string, unknown>, component: unknown): unknown
   }
+  get?(name: string): unknown
   effect?(callback: () => () => void): unknown
 }): void {
   ctx.slots.inject(SEAT, () => ctx.slots.register(
     { name: SEAT, id: PLUGIN_ID, order: 100, label: '局域网访问' },
     SettingsSection,
   ))
+  // The remote workspace picker: an independent second client contribution.
+  // It shadows the official directory-flow occupant for REMOTE browsers only
+  // (see client/workspace-flow.ts), so a phone can add a workspace even though
+  // DSH resolved its own picker to the HOST's OS dialog.
+  applyDirectoryFlow(ctx)
 }
 
 module.exports = {

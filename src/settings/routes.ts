@@ -29,6 +29,7 @@ import type { AuthManager } from '../auth/manager.ts'
 import { buildClearedCookie, isLoopbackAddress, passesCsrfCheck, ADMIN_COOKIE } from '../auth/manager.ts'
 import { VISITOR_HEADER } from '../headers.ts'
 import type { AccessInfo } from '../qrcode.ts'
+import { listDirectories } from '../workspace/browse.ts'
 import type { DeviceRecord } from '../store/secrets.ts'
 import type { DeviceStatus } from '../store/secrets.ts'
 import type { UpdateStatus } from '../update-check.ts'
@@ -613,6 +614,88 @@ export function registerManagementRoutes(options: ManagementRoutesOptions): () =
     path: `${MANAGEMENT_BASE}/devices`,
     handler: handleDevices,
   }))
+
+  /**
+   * Remote workspace picker: ONE directory level per request.
+   *
+   * DSH resolves its directory-picker seam once at boot, and on a loopback-only
+   * bind with a display that resolution is `native` — the OS folder dialog
+   * opens on THIS machine's screen. A browser arriving through the LAN gateway
+   * therefore cannot use "添加工作区" at all. The browser half of this plugin
+   * shadows the official flow occupant and drives this route instead; the
+   * picked path still goes back through DSH's own workspace flow, so nothing is
+   * registered here.
+   *
+   * AUTHORITY: reading the host's directory tree is a privileged operation, so
+   * it needs the SAME authority as every other management call — the machine's
+   * own operator, or a remote session that unlocked the console. Under the
+   * default `local_only` policy a remote device gets `read_only_remote`, which
+   * the page explains instead of failing silently.
+   *
+   * RATE LIMIT: a runaway UI loop must not turn into unbounded filesystem
+   * walks. The bucket is keyed by the socket address plus the visitor marker,
+   * and because the proxy connects from loopback and does not forward the
+   * client address, every proxied visitor shares ONE bucket — this is a runaway
+   * guard, not a per-device quota.
+   */
+  const BROWSE_RATE_LIMIT = 240
+  const BROWSE_RATE_WINDOW_MS = 60_000
+  const browseBudget = new Map<string, { used: number; resetAtMs: number }>()
+
+  /** Consume one unit from the caller's budget; false when it is exhausted. */
+  const overBrowseBudget = (req: IncomingMessage): boolean => {
+    const key = `${req.socket.remoteAddress ?? 'unknown'}:${req.headers[VISITOR_HEADER] === undefined ? 'local' : 'visitor'}`
+    const now = Date.now()
+    if (browseBudget.size > 64) {
+      // DSH's own web server is loopback-only, so the key space is tiny; this
+      // prune only exists so the map can never grow with the request count.
+      for (const [existing, entry] of browseBudget) {
+        if (entry.resetAtMs <= now) browseBudget.delete(existing)
+      }
+    }
+    const bucket = browseBudget.get(key)
+    if (bucket === undefined || bucket.resetAtMs <= now) {
+      browseBudget.set(key, { used: 1, resetAtMs: now + BROWSE_RATE_WINDOW_MS })
+      return false
+    }
+    bucket.used += 1
+    return bucket.used > BROWSE_RATE_LIMIT
+  }
+
+  const handleWorkspaces = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
+    if (refusedByFence(req, res)) return
+    if (isRemoteReadOnly(req)) {
+      sendJson(res, 403, { ok: false, error: 'read_only_remote' })
+      return
+    }
+    // The SAME authority rule as every other management write: `adminProtection`
+    // may waive the unlock, while `local_only` never can (checked just above).
+    if (needsAdmin(req)) {
+      sendJson(res, 403, { ok: false, error: 'admin_required' })
+      return
+    }
+    if (overBrowseBudget(req)) {
+      sendJson(res, 429, { ok: false, error: 'rate_limited' })
+      return
+    }
+    const url = new URL(req.url ?? '/', 'http://dsh-lan-guard.invalid')
+    const result = await listDirectories(url.searchParams.get('path'))
+    if (result.ok) {
+      sendJson(res, 200, result)
+      return
+    }
+    const status = result.error === 'blocked'
+      ? 403
+      : result.error === 'not_found' ? 404 : result.error === 'unreadable' ? 500 : 400
+    sendJson(res, status, result)
+  }
+
+  disposers.push(options.webServer.register({
+    kind: 'exact',
+    path: `${MANAGEMENT_BASE}/workspaces`,
+    handler: handleWorkspaces,
+  }))
+
   /**
    * Update detection (SPEC F8). Read-only: it reports what npm has and the
    * settings page offers a copyable command — the host never installs anything.
