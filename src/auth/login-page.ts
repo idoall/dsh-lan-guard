@@ -166,12 +166,14 @@ function notice(state: LoginState, lockedUntilMs: number | undefined, now: numbe
       + '请在运行本程序的电脑上打开设置 → 局域网访问 → 已授权设备，点「批准」后刷新本页即可进入。</p>'
   }
   if (state === 'device-removed') {
-    // "重新放行" really does restore the same browser (unblock keeps the record);
-    // DELETING the record does not, because the browser still presents its old
-    // device cookie — so the old advice ("删除该记录后重新确认") was a dead end.
+    // Reached only for a REVOKED or BLOCKED record. A record that was DELETED no
+    // longer lands here: the gate now treats a cookie that names no record as
+    // absent browser state and lets the auth flow recover it, so the old
+    // "清除本浏览器的本站数据" advice went with that dead end.
+    // "解除拉黑" really does restore the same browser (unblocking keeps the
+    // record, so the same cookie works again immediately).
     return '<p class="notice error"><strong>此设备已被移除访问权限。</strong><br>'
-      + '请联系管理员在「已授权设备」中「解除拉黑」，同一台设备会立即恢复；'
-      + '若该记录已被删除，请清除本浏览器的本站数据后再访问。</p>'
+      + '请联系管理员在「已授权设备」中「解除拉黑」，同一台设备会立即恢复。</p>'
   }
   if (state === 'token-only') {
     return '<p class="notice warn">当前验证模式为<strong>仅安全 Token</strong>，不接受密码登录。'

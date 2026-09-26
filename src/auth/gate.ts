@@ -142,10 +142,10 @@ export class VisitorGate {
     // A device identity is the durable credential: once paired, a device is
     // recognised by its own cookie, and revoking the record cuts it off here.
     const deviceToken = readCookie(req, DEVICE_COOKIE)
-    if (deviceToken !== undefined) {
-      const device = this.#devices?.lookup(deviceToken)
-      if (device === undefined || device.revokedAtMs !== null || device.status === 'blocked') {
-        this.#logger.warn('refused a revoked, blocked or unknown device ip=%s', clientIp(req))
+    const device = deviceToken === undefined ? undefined : this.#devices?.lookup(deviceToken)
+    if (device !== undefined) {
+      if (device.revokedAtMs !== null || device.status === 'blocked') {
+        this.#logger.warn('refused a revoked or blocked device ip=%s', clientIp(req))
         this.#sendRemoved(req, res)
         return 'handled'
       }
@@ -159,6 +159,16 @@ export class VisitorGate {
         this.#logger.warn('device touch failed name=%s', error.name)
       })
       return 'allow'
+    }
+    if (deviceToken !== undefined) {
+      // The cookie names no record: the operator deleted it, or this plugin's
+      // private state directory changed. That makes it stale BROWSER state, not
+      // an identity, so it must not decide anything — falling through to the
+      // ordinary flow lets a password or a freshly rotated link recover this
+      // browser. Refusing here instead stranded it on the removal page forever,
+      // because that page is produced BEFORE `?auth=` is ever read (user report
+      // 2026-09-26: a phone that had paired once could never get back in).
+      this.#logger.debug?.('device cookie matches no record; continuing to the auth flow ip=%s', clientIp(req))
     }
 
     const link = url.searchParams.get('auth')
@@ -205,9 +215,9 @@ export class VisitorGate {
    */
   async verifyUpgrade(req: IncomingMessage): Promise<{ status: number; reason: string } | undefined> {
     const deviceToken = readCookie(req, DEVICE_COOKIE)
-    if (deviceToken !== undefined) {
-      const device = this.#devices?.lookup(deviceToken)
-      if (device === undefined || device.revokedAtMs !== null || device.status === 'blocked') {
+    const device = deviceToken === undefined ? undefined : this.#devices?.lookup(deviceToken)
+    if (device !== undefined) {
+      if (device.revokedAtMs !== null || device.status === 'blocked') {
         this.#logger.warn('upgrade refused: revoked or blocked device ip=%s', clientIp(req))
         return { status: 403, reason: 'device_revoked' }
       }
@@ -215,6 +225,9 @@ export class VisitorGate {
       await this.#devices?.touch(device.id, clientIp(req)).catch(() => undefined)
       return undefined
     }
+    // A cookie that names no record is stale browser state, not an identity:
+    // fall through to the session verdict instead of refusing the socket, so a
+    // page that recovered through a link can also open its stream.
     const verdict = await this.#auth.verifyRequest(req)
     if (!verdict.ok) {
       this.#logger.warn('upgrade refused reason=%s ip=%s', verdict.reason, clientIp(req))

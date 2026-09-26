@@ -23,6 +23,7 @@ import {
 } from 'node:http'
 import { createServer as createHttpsServer } from 'node:https'
 import type { Duplex } from 'node:stream'
+import type { TLSSocket } from 'node:tls'
 import {
   authorityOf,
   buildUpstreamRequestHeaders,
@@ -101,6 +102,61 @@ export function parseUpstream(origin: string): UpstreamTarget {
 /** Whether a request method may be retried after a `401` without side effects. */
 function isSafeMethod(method: string | undefined): boolean {
   return method === 'GET' || method === 'HEAD'
+}
+
+/** The peer address of a socket whose own typing does not carry one. */
+function peerOf(socket: unknown): string {
+  const address = (socket as { remoteAddress?: unknown }).remoteAddress
+  return typeof address === 'string' && address !== '' ? address : 'unknown'
+}
+
+/**
+ * Answer a plaintext HTTP request that reached the TLS port with a redirect to
+ * the same address over `https`.
+ *
+ * Three facts shape this function:
+ *
+ * 1. it only ever runs for a connection whose handshake ALREADY failed, so it
+ *    cannot affect a working TLS session;
+ * 2. the request line and headers are gone by then — the TLS parser consumed
+ *    and rejected them — so the redirect targets the root of the address the
+ *    client connected to, not the path it asked for;
+ * 3. a plaintext reply cannot travel through the `TLSSocket` at all (writing to
+ *    it is encrypted into nothing — measured: the client receives zero bytes),
+ *    so only the raw socket underneath can carry it. Node exposes that as the
+ *    private `_parent`; the field is verified on Node 20, 22 and 24. When it is
+ *    absent — a future Node change — this returns false and the caller destroys
+ *    the socket, which is exactly the behaviour before this function existed.
+ *
+ * @param socket - the socket whose TLS handshake failed.
+ * @param logger - logger, used only for the degraded path.
+ * @returns whether the redirect was written.
+ */
+function redirectPlaintextToHttps(socket: TLSSocket, logger: LanGuardLogger): boolean {
+  const raw = (socket as unknown as { _parent?: unknown })._parent as
+    | { writable?: unknown; end?: unknown }
+    | undefined
+  if (raw === undefined || raw === null || raw.writable !== true || typeof raw.end !== 'function') {
+    logger.debug?.('plaintext redirect unavailable: no writable raw socket')
+    return false
+  }
+  const address = socket.localAddress
+  const port = socket.localPort
+  if (address === undefined || address === '' || port === undefined) return false
+  const host = address.includes(':') ? `[${address}]` : address
+  try {
+    // One `end` (write + FIN) is enough: the client reads the whole response.
+    ;(raw.end as (chunk: string) => unknown).call(
+      raw,
+      'HTTP/1.1 301 Moved Permanently\r\n'
+      + `location: https://${host}:${String(port)}/\r\n`
+      + 'content-length: 0\r\nconnection: close\r\n\r\n',
+    )
+    return true
+  } catch (error) {
+    logger.warn('plaintext redirect failed name=%s', (error as Error).name)
+    return false
+  }
 }
 
 /**
@@ -208,13 +264,50 @@ export async function startProxy(options: ProxyOptions): Promise<RunningProxy> {
     })()
   }
 
-  const server: Server = options.tls === undefined
-    ? createServer(handler)
-    : createHttpsServer({ cert: options.tls.cert, key: options.tls.key }, handler) as unknown as Server
+  // The TLS server is kept separately typed: `tlsClientError` lives on
+  // `tls.Server` and would be invisible behind the `Server` cast below.
+  const httpsServer = options.tls === undefined
+    ? undefined
+    : createHttpsServer({ cert: options.tls.cert, key: options.tls.key }, handler)
+  const server: Server = httpsServer ?? createServer(handler)
 
   server.on('connection', (socket) => {
     sockets.add(socket)
     socket.on('close', () => sockets.delete(socket))
+  })
+
+  if (httpsServer !== undefined) {
+    // A plaintext client on the TLS port never reaches the gate: the handshake
+    // fails first and Node answers with NOTHING at all, so the visitor sees a
+    // bare "无法访问" (user report 2026-09-26: ERR_EMPTY_RESPONSE / -324 — the
+    // browser was handed an `http://` address for a listener that serves only
+    // https). This is the only place that failure is observable, so both the
+    // log line and the redirect live here.
+    httpsServer.on('tlsClientError', (error: Error, socket: TLSSocket) => {
+      const code = (error as NodeJS.ErrnoException).code ?? error.name
+      const plaintext = code === 'ERR_SSL_HTTP_REQUEST'
+      logger.warn(
+        'tls handshake failed code=%s plaintextHttp=%s ip=%s',
+        code,
+        plaintext ? 'yes' : 'no',
+        peerOf(socket),
+      )
+      if (plaintext && redirectPlaintextToHttps(socket, logger)) return
+      socket.destroy()
+    })
+  }
+
+  // Node answers an unparsable request with a 400 of its own, and attaching a
+  // listener REPLACES that default, so it is reproduced verbatim here — with the
+  // log line the default never had (user request 2026-09-26: connection-level
+  // failures were invisible in the log).
+  server.on('clientError', (error: NodeJS.ErrnoException, socket: Duplex) => {
+    logger.warn('malformed request code=%s ip=%s', error.code ?? error.name, peerOf(socket))
+    if (error.code === 'ECONNRESET' || socket.writable !== true) {
+      socket.destroy()
+      return
+    }
+    socket.end('HTTP/1.1 400 Bad Request\r\n\r\n')
   })
 
   server.on('upgrade', (req: IncomingMessage, socket: Duplex, head: Buffer) => {

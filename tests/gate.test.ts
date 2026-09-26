@@ -557,3 +557,119 @@ describe('login form enablement', () => {
     expect(tag(html, /<input id="password"[^>]*>/)).toContain('disabled')
   })
 })
+
+describe('a device cookie that names no record must not strand a browser', () => {
+  /** Pair a device, then delete its record — leaving a stale cookie behind. */
+  async function staleCookieAfterDelete(
+    started: LanGuardRuntime,
+  ): Promise<{ cookie: string; deviceId: string }> {
+    const { device, token } = await started.devices.add('旧手机')
+    const cookie = `dsh_lan_guard_device=${token}`
+    // Sanity: while the record exists the cookie is a working identity.
+    const allowed = await requestTo(started.proxy.port, { path: '/', headers: { cookie } })
+    expect(allowed.status).toBe(200)
+    await started.devices.remove(device.id)
+    return { cookie, deviceId: device.id }
+  }
+
+  it('recovers through a freshly issued passwordless link', async () => {
+    const { runtime: started, port } = await harness({ auth: { requirePairing: true } })
+    const { cookie } = await staleCookieAfterDelete(started)
+
+    // Before the fix this was a permanent 403 "已被移除访问权限": the removal
+    // page is produced BEFORE `?auth=` is read, so no link could ever help.
+    const token = await started.auth.ensureSecretToken()
+    const exchange = await requestTo(port, {
+      path: `/?auth=${token}`,
+      headers: { accept: 'text/html', cookie },
+    })
+    expect(exchange.status).toBe(302)
+    const session = cookiePair(exchange, 'dsh_lan_guard_session')
+
+    // Authenticated but unnamed -> the naming page, then a NEW identity.
+    const page = await requestTo(port, {
+      path: '/',
+      headers: { accept: 'text/html', cookie: `${session}; ${cookie}` },
+    })
+    expect(page.status).toBe(200)
+    expect(page.body.toString()).toContain('确认这台设备')
+
+    const paired = await requestTo(port, {
+      method: 'POST',
+      path: '/__dsh_lan_guard__/pair',
+      headers: {
+        'content-type': 'application/x-www-form-urlencoded',
+        host: `127.0.0.1:${String(port)}`,
+        cookie: `${session}; ${cookie}`,
+      },
+      body: 'label=%E6%96%B0%E6%89%8B%E6%9C%BA',
+    })
+    expect(paired.status).toBe(302)
+    const fresh = cookiePair(paired, 'dsh_lan_guard_device')
+    expect(fresh).not.toBe(cookie)
+    const back = await requestTo(port, { path: '/', headers: { cookie: fresh } })
+    expect(back.status).toBe(200)
+    expect(back.body.toString()).toContain('fake dsh index')
+    expect(started.devices.activeCount).toBe(1)
+  })
+
+  it('recovers through the password form', async () => {
+    const { runtime: started, port } = await harness({ auth: { requirePairing: true } })
+    const { cookie } = await staleCookieAfterDelete(started)
+
+    // The stale cookie must not shadow the login page either.
+    const page = await requestTo(port, { path: '/', headers: { accept: 'text/html', cookie } })
+    expect(page.status).toBe(401)
+    expect(page.body.toString()).toContain('访问密码')
+
+    const response = await login(port, PASSWORD, { cookie })
+    expect(response.status).toBe(302)
+    const session = cookiePair(response, 'dsh_lan_guard_session')
+    const naming = await requestTo(port, {
+      path: '/',
+      headers: { accept: 'text/html', cookie: `${session}; ${cookie}` },
+    })
+    expect(naming.body.toString()).toContain('确认这台设备')
+  })
+
+  it('does not refuse the websocket upgrade of a browser holding a stale cookie', async () => {
+    const { runtime: started, port } = await harness({ auth: { requirePairing: true } })
+    const { cookie } = await staleCookieAfterDelete(started)
+
+    // No session at all: the verdict is 401 unauthorized, NOT 403 device_revoked
+    // — proof the stale cookie was treated as absent rather than as a refusal.
+    const result = await upgradeTo(port, { cookie })
+    expect(result.statusLine).toContain('401')
+    expect(result.statusLine).not.toContain('403')
+    result.socket.destroy()
+  })
+
+  it('still refuses a REVOKED record, which the operator cut off on purpose', async () => {
+    const { runtime: started, port } = await harness({ auth: { requirePairing: true } })
+    const { device, token } = await started.devices.add('被吊销的手机')
+    const cookie = `dsh_lan_guard_device=${token}`
+    await started.devices.revoke(device.id)
+
+    const refused = await requestTo(port, { path: '/', headers: { accept: 'text/html', cookie } })
+    expect(refused.status).toBe(403)
+    expect(refused.body.toString()).toContain('已被移除访问权限')
+    // The notice must no longer send anyone down the deleted-record dead end.
+    expect(refused.body.toString()).not.toContain('清除本浏览器的本站数据')
+
+    // Revoking keeps the record, so the upgrade is refused too.
+    const upgrade = await upgradeTo(port, { cookie })
+    expect(upgrade.statusLine).toContain('403')
+    upgrade.socket.destroy()
+  })
+
+  it('still refuses a BLOCKED record', async () => {
+    const { runtime: started, port } = await harness({ auth: { requirePairing: true } })
+    const { device, token } = await started.devices.add('被拉黑的手机')
+    const cookie = `dsh_lan_guard_device=${token}`
+    await started.devices.setStatus(device.id, 'blocked')
+
+    const refused = await requestTo(port, { path: '/', headers: { accept: 'text/html', cookie } })
+    expect(refused.status).toBe(403)
+    expect(refused.body.toString()).toContain('已被移除访问权限')
+  })
+})
