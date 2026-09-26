@@ -55,8 +55,40 @@ export const VISITOR_HEADER = 'x-dsh-lan-guard-visitor'
 /** Request headers the proxy always replaces, never forwards verbatim. */
 const REPLACED_REQUEST_HEADERS = ['host', 'origin', 'cookie', VISITOR_HEADER] as const
 
-/** Response headers dropped on top of the hop-by-hop set. */
-const DROPPED_RESPONSE_HEADERS = ['set-cookie'] as const
+/**
+ * Read one `name=value` pair out of a `Cookie` request header.
+ *
+ * Deliberately not a cookie parser: the value is relayed byte-for-byte, and the
+ * only decision here is which NAME to keep.
+ *
+ * @param header - the visitor's `cookie` header.
+ * @param name - the cookie name to extract.
+ * @returns the exact `name=value` pair, or `undefined`.
+ */
+export function cookiePairOf(header: string | undefined, name: string): string | undefined {
+  if (header === undefined || header === '') return undefined
+  for (const part of header.split(';')) {
+    const trimmed = part.trim()
+    const eq = trimmed.indexOf('=')
+    if (eq <= 0) continue
+    if (trimmed.slice(0, eq).trim() === name) return trimmed
+  }
+  return undefined
+}
+
+/** The cookie name of one `Set-Cookie` entry. */
+function setCookieName(entry: string): string | undefined {
+  const eq = entry.indexOf('=')
+  if (eq <= 0) return undefined
+  const name = entry.slice(0, eq).trim()
+  return name === '' ? undefined : name
+}
+
+/** Normalize a header value that may be a single string or a list. */
+function toArray(value: string | string[] | undefined): string[] {
+  if (value === undefined) return []
+  return Array.isArray(value) ? value : [value]
+}
 
 /** Whether a request target is a WebSocket upgrade rather than a plain HTTP request. */
 export function isUpgradeRequest(headers: IncomingHttpHeaders): boolean {
@@ -111,6 +143,13 @@ export function normalizeRequestTarget(rawTarget: string | undefined): string {
  * @param input.authority - upstream `host:port`.
  * @param input.upstreamCookie - the loopback session cookie to inject, if known.
  * @param input.upgrade - true for a WebSocket upgrade (keeps `connection`/`upgrade`).
+ * @param input.relayCookieNames - the plugin's OWN cookie names that must reach
+ *   the upstream. DSH's session cookie is injected by the proxy, and the
+ *   visitor's other cookies (the gate session and device identity) belong to the
+ *   proxy origin and must never reach DSH — but this plugin mints an admin
+ *   session cookie that DSH's web server has to SEE to honour, and the proxy is
+ *   the only path that request takes. Relaying a name allowlist (rather than the
+ *   whole header) keeps both properties.
  * @returns headers safe to hand to `http.request`.
  */
 export function buildUpstreamRequestHeaders(input: {
@@ -118,6 +157,7 @@ export function buildUpstreamRequestHeaders(input: {
   authority: string
   upstreamCookie?: string | undefined
   upgrade?: boolean
+  relayCookieNames?: readonly string[]
 }): OutgoingHttpHeaders {
   const outgoing: OutgoingHttpHeaders = {}
   const hopByHop = new Set<string>(HOP_BY_HOP_HEADERS)
@@ -140,9 +180,15 @@ export function buildUpstreamRequestHeaders(input: {
   const origin = input.headers.origin
   if (origin !== undefined) outgoing.origin = `http://${input.authority}`
   if (input.upstreamCookie !== undefined && input.upstreamCookie !== '') {
-    // Replace, never append: the visitor's cookies belong to the proxy origin
-    // (in P2 one of them is the gate session) and must not reach the upstream.
-    outgoing.cookie = input.upstreamCookie
+    // Replace, never append wholesale: the visitor's cookies belong to the proxy
+    // origin (the gate session and the device identity) and must not reach the
+    // upstream. The named exceptions are this plugin's own credentials.
+    const relayed = (input.relayCookieNames ?? [])
+      .map(name => cookiePairOf(input.headers.cookie, name))
+      .filter((pair): pair is string => pair !== undefined)
+    outgoing.cookie = relayed.length === 0
+      ? input.upstreamCookie
+      : `${input.upstreamCookie}; ${relayed.join('; ')}`
   }
   return outgoing
 }
@@ -150,15 +196,30 @@ export function buildUpstreamRequestHeaders(input: {
 /**
  * Filter an upstream response's headers for the browser.
  *
+ * `set-cookie` stays dropped EXCEPT for the plugin's own cookie names (see
+ * {@link buildUpstreamRequestHeaders}): DSH's own session cookie must never
+ * reach a visitor, while this plugin's admin session has to be stored by the
+ * visitor's browser or remote management could never unlock.
+ *
  * @param headers - upstream response headers.
+ * @param relayCookieNames - the plugin's own cookie names that may round-trip.
  * @returns headers safe to write to the visitor's response.
  */
-export function buildUpstreamResponseHeaders(headers: IncomingHttpHeaders): OutgoingHttpHeaders {
+export function buildUpstreamResponseHeaders(
+  headers: IncomingHttpHeaders,
+  relayCookieNames: readonly string[] = [],
+): OutgoingHttpHeaders {
   const outgoing: OutgoingHttpHeaders = {}
-  const dropped = new Set<string>([...HOP_BY_HOP_HEADERS, ...DROPPED_RESPONSE_HEADERS])
+  const dropped = new Set<string>(HOP_BY_HOP_HEADERS)
   for (const [name, value] of Object.entries(headers)) {
     if (value === undefined) continue
-    if (dropped.has(name.toLowerCase())) continue
+    const lower = name.toLowerCase()
+    if (lower === 'set-cookie') {
+      const kept = toArray(value).filter(entry => relayCookieNames.includes(setCookieName(entry) ?? ''))
+      if (kept.length > 0) outgoing['set-cookie'] = kept
+      continue
+    }
+    if (dropped.has(lower)) continue
     outgoing[name] = value
   }
   return outgoing

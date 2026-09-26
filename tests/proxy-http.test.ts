@@ -136,6 +136,52 @@ describe('HTTP forwarding', () => {
     expect(response.headers['set-cookie']).toBeUndefined()
   })
 
+  it('round-trips the plugin admin cookie in BOTH directions', async () => {
+    // The regression this pins (reported 2026-09-26): the management route runs
+    // on DSH's web server, behind this proxy, so the admin session cookie the
+    // plugin mints must survive the hop — otherwise `adminPolicy:
+    // password_unlock` can never be satisfied remotely, and every remote
+    // management call (including the workspace picker) is refused forever.
+    const { fake: upstream, proxy: running } = await harness({
+      routes: {
+        '/plugins/dsh-lan-guard/config': (_req, res) => {
+          res.writeHead(200, {
+            'content-type': 'application/json',
+            'set-cookie': [
+              'dsh_lan_guard_admin=fresh-token; Max-Age=1800; Path=/; HttpOnly; SameSite=Strict',
+              'upstream-leak=1; HttpOnly',
+            ],
+          })
+          res.end('{"ok":true}')
+        },
+      },
+    })
+    const response = await requestTo(running.port, {
+      method: 'POST',
+      path: '/plugins/dsh-lan-guard/config',
+      headers: {
+        host: `192.168.1.5:${String(running.port)}`,
+        'content-type': 'application/json',
+        cookie: 'dsh_lan_guard_session=gate-secret; dsh_lan_guard_admin=old-token',
+      },
+      body: '{"adminUnlock":"pw"}',
+    })
+    expect(response.status).toBe(200)
+
+    // Upstream → browser: the plugin's cookie is relayed, DSH's is not.
+    const setCookie = response.headers['set-cookie']
+    expect(setCookie).toHaveLength(1)
+    expect(setCookie?.[0]).toContain('dsh_lan_guard_admin=fresh-token')
+    expect(JSON.stringify(setCookie)).not.toContain('upstream-leak')
+
+    // Browser → upstream: the admin cookie travels with the injected one, and
+    // the gate's own session cookie does not travel at all.
+    const forwarded = upstream.observed.find(entry => entry.url === '/plugins/dsh-lan-guard/config')
+    expect(forwarded?.headers.cookie).toContain('dsh_lan_guard_admin=old-token')
+    expect(forwarded?.headers.cookie).toMatch(/^dsh-auth-/)
+    expect(JSON.stringify(forwarded?.headers)).not.toContain('gate-secret')
+  })
+
   it('never forwards hop-by-hop response headers', async () => {
     const { proxy: running } = await harness({
       routes: {

@@ -33,8 +33,24 @@ import {
 import type { LanGuardLogger } from './log.ts'
 import { noopLogger } from './log.ts'
 import type { VisitorGate } from './auth/gate.ts'
+import { ADMIN_COOKIE } from './auth/manager.ts'
 import type { UpstreamAuth } from './upstream-auth.ts'
 import { forwardUpgrade, guardUpgradeSocket, type UpstreamTarget } from './websocket.ts'
+
+/**
+ * The visitor cookies this proxy relays in BOTH directions.
+ *
+ * The proxy injects DSH's loopback session cookie itself and never forwards the
+ * visitor's other cookies (the gate session and the device identity belong to
+ * the proxy origin). But this plugin mints its OWN admin session cookie, and the
+ * only code that can validate it — the management route — runs on DSH's web
+ * server, behind this proxy. Dropping it made `adminPolicy: password_unlock`
+ * unsatisfiable for every remote device: the unlock POST returned 200 and the
+ * very next request was locked again (reported 2026-09-26: "远程选了密码解锁，
+ * 添加工作区里仍然是空的"). Relaying exactly this name keeps DSH's own cookie
+ * out of the visitor's browser while letting the plugin's credential round-trip.
+ */
+const RELAY_COOKIE_NAMES = [ADMIN_COOKIE] as const
 
 /** Options for {@link startProxy}. */
 export interface ProxyOptions {
@@ -202,6 +218,7 @@ export async function startProxy(options: ProxyOptions): Promise<RunningProxy> {
       headers: req.headers,
       authority,
       upstreamCookie: cookie,
+      relayCookieNames: RELAY_COOKIE_NAMES,
     })
     const upstreamReq = httpRequest({
       hostname: upstream.hostname,
@@ -222,7 +239,7 @@ export async function startProxy(options: ProxyOptions): Promise<RunningProxy> {
       res.writeHead(
         status,
         upstreamRes.statusMessage === '' ? undefined : upstreamRes.statusMessage,
-        buildUpstreamResponseHeaders(upstreamRes.headers),
+        buildUpstreamResponseHeaders(upstreamRes.headers, RELAY_COOKIE_NAMES),
       )
       upstreamRes.pipe(res)
     })
@@ -346,6 +363,7 @@ export async function startProxy(options: ProxyOptions): Promise<RunningProxy> {
           authority,
           upstreamCookie: cookie,
           upgrade: true,
+          relayCookieNames: RELAY_COOKIE_NAMES,
         }),
         logger,
       })
