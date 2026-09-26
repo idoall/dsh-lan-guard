@@ -137,10 +137,11 @@ The plugin reads its config from its Cordis entry. **Every key has a usable defa
 
 ## Compatibility
 
-Current version: plugin **`0.3.4`**; it adds one host-side switch and one index injection (verified on DeepSeek Harness **`0.1.7-rc.2`**).
+Current version: plugin **`0.3.5`**; connection-level visibility and gate-recovery fixes (verified on DeepSeek Harness **`0.1.7-rc.2`**).
 
 | Plugin | Verified DeepSeek Harness | What this version is |
 | --- | --- | --- |
+| **`0.3.5`** | **`0.1.7-rc.2`**, `0.1.7-rc.1` | Connection-level visibility: an `http://` request to the TLS port goes from "blank page + no log" to a 301 onto `https` with a log line; a deleted device record no longer locks that browser out (revoked/blocked still refuse); the removal-page copy follows |
 | **`0.3.4`** | **`0.1.7-rc.2`**, `0.1.7-rc.1` | Official settings page on the LAN: a new `settingsUnlock` switch (on by default) that injects the host-surface marker into the index; applies on page refresh; a UI unlock, not a new privilege |
 | **`0.3.3`** | **`0.1.7-rc.2`**, `0.1.7-rc.1` | Gate UX fixes: the two first-visit steps are announced up front; an inert-link page can be logged into again; the blocking note now matches real behaviour (no host-facing change) |
 | **`0.3.2`** | **`0.1.7-rc.2`**, `0.1.7-rc.1` | Install and go: LAN-facing default + derived `dataDir`; Liquid Glass settings page at official sizes; single-line scrolling access URL |
@@ -153,6 +154,7 @@ Current version: plugin **`0.3.4`**; it adds one host-side switch and one index 
 - Declared range `>=0.1.7-rc.1 <0.2.0` (`dsh.engines.dsh`); DSH versions not listed are **unverified** — verify them yourself before use.
 - Host/client interfaces this plugin uses: `webServer.register` / `webServer.tapIndex` (indexTaps), `connection.requestRejection`, `connection.authenticatedUrl`, the additive `settings.section` seat, `@deepseek-ai/schemastery`, and `profileContext` (for deriving the default data directory).
 - **Breaking default change (from `0.3.2`)**: `listenHost` now defaults to `0.0.0.0` instead of `127.0.0.1`, so one restart after install is enough; `0.3.1` and earlier default to loopback only. The gate and self-signed TLS defaults are unchanged (with no password the gate still refuses every device). See the [CHANGELOG](CHANGELOG.md).
+- **`0.3.5` verification status**: the changes touch only the proxy's connection-level handling and the gate's verdict; no host/client interface changed; the suite is green at **273** specs (+10) and was falsified (reverting a fix fails its specs); the real-DSH install verification follows the release.
 - **`0.3.4` verification status**: the change adds one host-side switch, one index injection and a switch on the plugin's own settings page (`webServer.tapIndex` is a declared host interface); the suite is green at **263** specs; the injected script was exercised in a real Chrome over a non-loopback address in three states; the real-DSH install verification follows the release.
 - **`0.3.3` verification status**: the changes touch only the plugin's own pages, copy and gate-form availability; no host/client interface changed; the suite is green at **247** specs; the real-DSH install verification follows the release.
 
