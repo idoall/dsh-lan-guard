@@ -97,6 +97,20 @@ export interface LanGuardConfigShape {
   networkInterface: string | null
   /** Private directory for sensitive state; explicit value wins, otherwise derived from the profile. */
   dataDir: string | null
+  /**
+   * Whether LAN visitors get DSH's OFFICIAL settings surface (default true).
+   *
+   * DSH disables that surface for any page whose address bar is not loopback
+   * (`persistence = isLoopback ? "host" : "memory"`), which is every device
+   * that reaches this machine through the gateway. When this switch is on, the
+   * served index carries the `ownsHost` flag DSH's own desktop shell sets, so
+   * Settings → Models and the other official pages work from the LAN too.
+   *
+   * It is a UI unlock, not a new transport privilege: the settings RPC is
+   * already reachable for anything that passes the gate (reads are redacted by
+   * DSH), and writes stay bounded by this plugin's gate and admin policy.
+   */
+  settingsUnlock: boolean
   /** Visitor-side gate configuration. */
   auth: AuthConfigShape
   /** Transport security configuration. */
@@ -162,6 +176,12 @@ export const Config: z<LanGuardConfigShape, Record<string, unknown>> = z.object(
   // (see resolveDataDir), so a fresh install needs no hand-written config. An
   // explicit value — including one using `~` — still wins.
   dataDir: z.string().default(''),
+  // Volatile so the settings page can flip it, and read per index render: a
+  // change needs only a page refresh, never a restart. Default ON because the
+  // plugin's whole purpose is LAN access and the gate — not this switch — is
+  // what protects the surface; an operator who wants DSH's stock behaviour
+  // turns it off.
+  settingsUnlock: z.boolean().default(true).volatile(),
   auth: z.object({
     // NOT volatile on purpose (PLAN §5 工作项 9 lists the writable switches):
     // the gate master switch is a startup-safety field (SPEC §5 principle 3),
@@ -211,6 +231,8 @@ export interface LiveSwitches {
   adminProtection(): boolean
   /** Whether loopback visitors skip the gate. */
   allowLoopback(): boolean
+  /** Whether LAN visitors get DSH's official settings surface. */
+  settingsUnlock(): boolean
   /** Whether an unnamed device must pair before it is let in. */
   requirePairing(): boolean
   /** Whether a paired device still needs the operator's approval (F9). */
@@ -247,6 +269,7 @@ export function liveSwitches(rawConfig: unknown, resolved: LanGuardConfigShape):
     networkInterface: () => emptyToNull(readField(root.networkInterface, '')),
     listenPort: () => readField(root.listenPort, resolved.listenPort),
     listenHost: () => readField(root.listenHost, resolved.listenHost),
+    settingsUnlock: () => readField(root.settingsUnlock, resolved.settingsUnlock),
     mode: () => readField(root.auth === undefined ? undefined : auth.mode, resolved.auth.mode),
     adminPolicy: () => readField(root.auth === undefined ? undefined : auth.adminPolicy, resolved.auth.adminPolicy),
     adminProtection: () => readField(
@@ -269,6 +292,7 @@ export function staticSwitches(config: LanGuardConfigShape): LiveSwitches {
     networkInterface: () => config.networkInterface,
     listenPort: () => config.listenPort,
     listenHost: () => config.listenHost,
+    settingsUnlock: () => config.settingsUnlock,
     mode: () => config.auth.mode,
     adminPolicy: () => config.auth.adminPolicy,
     adminProtection: () => config.auth.adminProtection,
@@ -400,7 +424,7 @@ function unwrapVolatileInput(input: unknown): unknown {
   if (typeof input !== 'object' || input === null || Array.isArray(input)) return input
   const source = input as Record<string, unknown>
   const result: Record<string, unknown> = { ...source }
-  for (const key of ['enabled', 'networkInterface', 'listenPort', 'listenHost']) {
+  for (const key of ['enabled', 'networkInterface', 'listenPort', 'listenHost', 'settingsUnlock']) {
     const value = result[key]
     if (isVolatileLike(value)) result[key] = (value as { get(): unknown }).get()
   }
@@ -452,6 +476,7 @@ export function parseConfig(input: unknown, profileDir?: string | undefined): La
     upstreamOrigin: readField(resolved.upstreamOrigin, DEFAULT_UPSTREAM_ORIGIN),
     networkInterface: emptyToNull(readField(resolved.networkInterface, '')),
     dataDir: dataDir?.dir ?? null,
+    settingsUnlock: readField(resolved.settingsUnlock, true),
     auth: {
       enabled: readField(rawAuth.enabled, true),
       mode: readField(rawAuth.mode, 'token_and_password'),

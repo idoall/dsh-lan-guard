@@ -81,7 +81,7 @@ Then **restart DSH once** and open **Settings → 局域网访问**. After that 
 
 ## Settings
 
-Everything lives under **Settings → 局域网访问**, in four tabs. The non-sensitive switches (`enabled`, `listenPort`, `listenHost`, `networkInterface`, `auth.mode`, `auth.adminPolicy`, `auth.adminProtection`, `auth.allowLoopback`, `auth.requirePairing`, `auth.requireApproval`) are editable directly; `listenPort` and `listenHost` take effect on the next DSH restart; `dataDir` and `tls.*` are startup fields that need a profile-patch edit.
+Everything lives under **Settings → 局域网访问**, in four tabs. The non-sensitive switches (`enabled`, `listenPort`, `listenHost`, `networkInterface`, `settingsUnlock`, `auth.mode`, `auth.adminPolicy`, `auth.adminProtection`, `auth.allowLoopback`, `auth.requirePairing`, `auth.requireApproval`) are editable directly; `listenPort` and `listenHost` take effect on the next DSH restart; `settingsUnlock` takes effect on the next page load; `dataDir` and `tls.*` are startup fields that need a profile-patch edit.
 
 | Setting | Default | Effect |
 | --- | --- | --- |
@@ -92,6 +92,7 @@ Everything lives under **Settings → 局域网访问**, in four tabs. The non-s
 | Access password | unset | The login password for visitor devices. **While unset, the gate refuses every device.** |
 | Admin password | unset | Unlocks this settings page's management console; falls back to the access password. |
 | Loopback exempt | **on** | Direct `127.0.0.1` access skips the gate (physically unlocked). |
+| Official settings page on the LAN | **on** | DSH opens its official settings surface only to loopback pages, so a LAN device opening **Settings → Models** reports `settings are unavailable in this browser`. With this on, any device that passes the gate (phones included) can use those pages after a page refresh. It is a UI unlock, not a new privilege: the settings RPC is gated by the visitor gate either way, and DSH still redacts secret reads. Refresh the page to apply; no restart needed. |
 | Require naming | **on** | A new device must name itself once before it appears in the device list. |
 | Require approval | off | When on, a named device still needs your **批准** before it is let in. |
 | TLS | **self-signed HTTPS** | Turning it off sends the gate password in clear; a non-loopback bind with TLS off is **refused at startup** unless you set `tls.allowInsecureLan: true`. |
@@ -109,6 +110,7 @@ The plugin reads its config from its Cordis entry. **Every key has a usable defa
     listenHost: 0.0.0.0              # LAN-facing by default; '127.0.0.1' = this machine only, or one NIC IP
     listenPort: 3081                 # DSH port + 1; auto-walks up to 10 ports when taken
     networkInterface: en0            # optional: publish on one NIC (empty = automatic)
+    settingsUnlock: true             # LAN devices may use the official settings page (default on)
     dataDir: ~/.dsh/profiles/web/data/dsh-lan-guard   # optional; this is the derived default
     tls:
       mode: self-signed              # 'self-signed' (default) | 'provided' | 'off'
@@ -135,10 +137,11 @@ The plugin reads its config from its Cordis entry. **Every key has a usable defa
 
 ## Compatibility
 
-Current version: plugin **`0.3.3`**; the DSH-facing code is unchanged from `0.3.2` (verified on DeepSeek Harness **`0.1.7-rc.2`**).
+Current version: plugin **`0.3.4`**; it adds one host-side switch and one index injection (verified on DeepSeek Harness **`0.1.7-rc.2`**).
 
 | Plugin | Verified DeepSeek Harness | What this version is |
 | --- | --- | --- |
+| **`0.3.4`** | **`0.1.7-rc.2`**, `0.1.7-rc.1` | Official settings page on the LAN: a new `settingsUnlock` switch (on by default) that injects the host-surface marker into the index; applies on page refresh; a UI unlock, not a new privilege |
 | **`0.3.3`** | **`0.1.7-rc.2`**, `0.1.7-rc.1` | Gate UX fixes: the two first-visit steps are announced up front; an inert-link page can be logged into again; the blocking note now matches real behaviour (no host-facing change) |
 | **`0.3.2`** | **`0.1.7-rc.2`**, `0.1.7-rc.1` | Install and go: LAN-facing default + derived `dataDir`; Liquid Glass settings page at official sizes; single-line scrolling access URL |
 | **`0.3.1`** | **`0.1.7-rc.2`**, `0.1.7-rc.1` | Verification release for `0.1.7-rc.2`: no code change, only compatibility metadata |
@@ -148,8 +151,9 @@ Current version: plugin **`0.3.3`**; the DSH-facing code is unchanged from `0.3.
 | `0.1.0` | `0.1.7-rc.1` | First release: gated reverse proxy, self-signed HTTPS, device pairing, settings page, QR access |
 
 - Declared range `>=0.1.7-rc.1 <0.2.0` (`dsh.engines.dsh`); DSH versions not listed are **unverified** — verify them yourself before use.
-- Host/client interfaces this plugin uses: `webServer.register` / `indexTaps`, `connection.requestRejection`, `connection.authenticatedUrl`, the additive `settings.section` seat, `@deepseek-ai/schemastery`, and `profileContext` (for deriving the default data directory).
+- Host/client interfaces this plugin uses: `webServer.register` / `webServer.tapIndex` (indexTaps), `connection.requestRejection`, `connection.authenticatedUrl`, the additive `settings.section` seat, `@deepseek-ai/schemastery`, and `profileContext` (for deriving the default data directory).
 - **Breaking default change (from `0.3.2`)**: `listenHost` now defaults to `0.0.0.0` instead of `127.0.0.1`, so one restart after install is enough; `0.3.1` and earlier default to loopback only. The gate and self-signed TLS defaults are unchanged (with no password the gate still refuses every device). See the [CHANGELOG](CHANGELOG.md).
+- **`0.3.4` verification status**: the change adds one host-side switch, one index injection and a switch on the plugin's own settings page (`webServer.tapIndex` is a declared host interface); the suite is green at **263** specs; the injected script was exercised in a real Chrome over a non-loopback address in three states; the real-DSH install verification follows the release.
 - **`0.3.3` verification status**: the changes touch only the plugin's own pages, copy and gate-form availability; no host/client interface changed; the suite is green at **247** specs; the real-DSH install verification follows the release.
 
 The official UI is reused with zero modifications and adapts on a phone viewport:
@@ -165,6 +169,7 @@ The official UI is reused with zero modifications and adapts on a phone viewport
 - Secrets (`secrets.json`, `devices.json`, sessions) live in `dataDir` with mode `600`; passwords are stored only as PBKDF2-SHA256 hashes, a device token is returned in plaintext once and only its SHA-256 hash is stored, and **the passwordless-link token is never written to logs**.
 - The proxy stamps every forwarded request with an unforgeable source marker so the host can tell "the machine's own operator" from "a visitor through the proxy".
 - Loopback access is **physically unlocked by design** — whoever can use this computer could change these settings anyway.
+- **The official-settings-page unlock (`settingsUnlock`) is a UI compatibility patch, not a new transport privilege.** A proxied request is already rewritten to a loopback `host`, and DSH's settings RPC is gated only by the visitor gate (reads are redacted by DSH); the switch merely stops the official page from reporting "settings are unavailable in this browser". Turn it off to restore DSH's stock behaviour.
 - The access password is **shared**: revoking a device invalidates that device's identity cookie immediately, but the same browser can re-pair with the password. Permanently blocking one machine would need device fingerprinting or per-device tokens, which this project deliberately avoids.
 - LAN only: no public tunnels, no IM bots, no port forwarding.
 - The plugin **installs, restarts and pushes nothing**: you copy and run the upgrade command yourself.
@@ -178,6 +183,8 @@ The official UI is reused with zero modifications and adapts on a phone viewport
 **The settings page says the port is open to the LAN but no access password is set.** That is the expected intermediate state: the port is reachable, but the gate refuses every device and leaks nothing. Set an access password under **安全认证**.
 
 **"Configured port X was taken; switched to Y."** Another program holds the port and the plugin walked forward. Change the port under **连接与证书** (with an availability check) or free it.
+
+**A LAN device opening Settings → Models reports `加载提供商目录失败: settings are unavailable in this browser`.** That is not a plugin failure: DSH decides whether its official settings surface is usable from the **page's own address bar**, and a LAN address is not loopback, so the surface is permanently downgraded. Open **连接与证书 → 局域网设备可用官方设置页** (on by default) and **refresh the page** on that device. If it still fails, confirm the switch actually saved, that the page was reloaded rather than re-tabbed, and that the DSH version is still inside the supported range.
 
 **"This device's access was removed" (403).** The device was revoked or blocked under **已授权设备**. Delete the record to let it pair again (a blocked device needs **解除拉黑** first).
 

@@ -32,6 +32,7 @@ describe('parseConfig defaults', () => {
     expect(config.listenPort).toBe(DEFAULT_LISTEN_PORT)
     expect(config.upstreamOrigin).toBe(DEFAULT_UPSTREAM_ORIGIN)
     expect(config.networkInterface).toBeNull()
+    expect(config.settingsUnlock).toBe(true)
     expect(config.auth.enabled).toBe(true)
     expect(config.auth.mode).toBe('token_and_password')
     expect(config.auth.adminPolicy).toBe('local_only')
@@ -294,5 +295,32 @@ describe('LAN HTTP acknowledgement (P4-e)', () => {
 
   it('still allows TLS-off on loopback without any acknowledgement', () => {
     expect(parseConfig({ dataDir: '/tmp/x', listenHost: '127.0.0.1', tls: { mode: 'off' } }).tls.mode).toBe('off')
+  })
+})
+
+describe('settingsUnlock switch (2026-09-26)', () => {
+  it('defaults to ON, because the gate — not this switch — protects the surface', () => {
+    expect(parseConfig({ dataDir: '/tmp/x' }).settingsUnlock).toBe(true)
+  })
+
+  it('is volatile and survives the resolved-config handoff', async () => {
+    const { Config, liveSwitches } = await import('../src/config.ts')
+    const resolved = Config({ dataDir: '/tmp/x', settingsUnlock: false } as never) as unknown
+    // The Loader hands `apply` volatile references, not bare values; a
+    // re-validation that rejected that shape would take the plugin down.
+    expect((resolved as { settingsUnlock: unknown }).settingsUnlock).toBeTypeOf('object')
+    const parsed = parseConfig(resolved)
+    expect(parsed.settingsUnlock).toBe(false)
+    expect(liveSwitches(resolved, parsed).settingsUnlock()).toBe(false)
+    expect(liveSwitches(resolved, parsed).settingsUnlock()).toBe(false)
+  })
+
+  it('accepts a boolean from the settings page and refuses anything else', async () => {
+    const { sanitizePreferencePatch, toSettingsPatch } = await import('../src/store/preferences.ts')
+    expect(sanitizePreferencePatch({ settingsUnlock: false })).toEqual({ settingsUnlock: false })
+    expect(sanitizePreferencePatch({ settingsUnlock: true })).toEqual({ settingsUnlock: true })
+    expect(toSettingsPatch({ settingsUnlock: false })).toEqual({ settingsUnlock: false })
+    expect(() => sanitizePreferencePatch({ settingsUnlock: 'off' })).toThrow(/boolean/)
+    expect(() => sanitizePreferencePatch({ settingsUnlock: 0 })).toThrow(/boolean/)
   })
 })

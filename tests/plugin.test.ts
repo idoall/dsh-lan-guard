@@ -223,6 +223,82 @@ describe('apply', () => {
     await expect(stat(join(profileDir, 'data', 'dsh-lan-guard'))).resolves.toBeDefined()
   })
 
+  it('installs the index tap that unlocks the official settings page', async () => {
+    // The real wiring: DSH's `webServer.tapIndex` is what puts the `ownsHost`
+    // flag into the served index, which is the only thing that can lift the
+    // upstream "settings are unavailable in this browser" state for a LAN page.
+    fake = await startFakeDsh()
+    const port = await freePort()
+    const disposers: (() => unknown)[] = []
+    const transforms: ((html: string) => string)[] = []
+    let tapDisposed = 0
+    const ctx = {
+      logger: () => silentLogger(),
+      connection: { authenticatedUrl: fake.authenticatedUrl, requestRejection: () => undefined },
+      webServer: {
+        port: 3080,
+        register: () => () => {},
+        tapIndex: (transform: (html: string) => string) => {
+          transforms.push(transform)
+          return () => { tapDisposed += 1 }
+        },
+      },
+      effect: (execute: () => () => unknown) => {
+        disposers.push(execute())
+      },
+    } as unknown as Context
+
+    await apply(ctx, {
+      dataDir: await tmpDataDir(),
+      listenHost: '127.0.0.1',
+      listenPort: port,
+      upstreamOrigin: fake.origin,
+      tls: { mode: 'off' },
+      auth: { allowLoopback: true },
+    })
+
+    const index = '<html><head></head><body>app</body></html>'
+    expect(transforms).toHaveLength(1)
+    const transformed = transforms[0]?.(index)
+    expect(transformed).toContain('__DSH_TRANSPORT__')
+    expect(transformed).toContain('ownsHost:true')
+
+    await disposers[0]?.()
+    expect(tapDisposed).toBe(1)
+  })
+
+  it('leaves the index untouched when the unlock switch is off', async () => {
+    fake = await startFakeDsh()
+    const port = await freePort()
+    const transforms: ((html: string) => string)[] = []
+    const ctx = {
+      logger: () => silentLogger(),
+      connection: { authenticatedUrl: fake.authenticatedUrl, requestRejection: () => undefined },
+      webServer: {
+        port: 3080,
+        register: () => () => {},
+        tapIndex: (transform: (html: string) => string) => {
+          transforms.push(transform)
+          return () => {}
+        },
+      },
+      effect: () => {},
+    } as unknown as Context
+
+    await apply(ctx, {
+      dataDir: await tmpDataDir(),
+      listenHost: '127.0.0.1',
+      listenPort: port,
+      upstreamOrigin: fake.origin,
+      tls: { mode: 'off' },
+      settingsUnlock: false,
+      auth: { allowLoopback: true },
+    })
+
+    const index = '<html><head></head><body>app</body></html>'
+    expect(transforms[0]?.(index)).toBe(index)
+  })
+
   it('does not take the plugin down when the settings service is unavailable', async () => {
     fake = await startFakeDsh()
     const port = await freePort()

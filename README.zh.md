@@ -81,7 +81,7 @@ dsh plugin --profile web add "link:$(pwd)"
 
 ## 设置
 
-设置项集中在 **设置 → 局域网访问** 的四个 tab 里。非敏感开关（`enabled`、`listenPort`、`listenHost`、`networkInterface`、`auth.mode`、`auth.adminPolicy`、`auth.adminProtection`、`auth.allowLoopback`、`auth.requirePairing`、`auth.requireApproval`）可直接改；`listenPort` 与 `listenHost` 需重启 dsh 生效；`dataDir` 与 `tls.*` 属启动期字段，需在 profile patch 里改。
+设置项集中在 **设置 → 局域网访问** 的四个 tab 里。非敏感开关（`enabled`、`listenPort`、`listenHost`、`networkInterface`、`settingsUnlock`、`auth.mode`、`auth.adminPolicy`、`auth.adminProtection`、`auth.allowLoopback`、`auth.requirePairing`、`auth.requireApproval`）可直接改；`listenPort` 与 `listenHost` 需重启 dsh 生效；`settingsUnlock` 刷新页面即可生效；`dataDir` 与 `tls.*` 属启动期字段，需在 profile patch 里改。
 
 | 设置项 | 默认 | 作用 |
 | --- | --- | --- |
@@ -92,6 +92,7 @@ dsh plugin --profile web add "link:$(pwd)"
 | 访问密码 | 未设置 | 手机等访客设备的登录密码。**未设置时门禁拒绝所有设备**。 |
 | 管理密码 | 未设置 | 解锁本设置页的管理台；未设置时退回访问密码。 |
 | 本机回环访问免密 | **开** | `127.0.0.1` 直连跳过门禁（物理免锁）。 |
+| 局域网设备可用官方设置页 | **开** | DSH 官方设置面默认只对回环页面开放，局域网设备打开「设置 → 模型」会提示 `settings are unavailable in this browser`。开启后，通过门禁的设备（含手机）刷新页面即可使用官方设置页；这是界面解锁，不是新增权限——设置接口本来就只由门禁把关，读取密钥仍由 DSH 脱敏。刷新页面生效，无需重启。 |
 | 新设备需要命名确认 | **开** | 新设备首次通过门禁时要自己命名一次，之后才出现在设备列表里。 |
 | 新设备需要管理员批准 | 关 | 开启后，命名完还要你在设备列表点「批准」才能进入。 |
 | TLS | **自签 HTTPS** | 关闭会明文传输门禁密码；非回环 + 关闭 TLS 必须显式设置 `tls.allowInsecureLan: true`，否则**拒绝启动**。 |
@@ -109,6 +110,7 @@ dsh plugin --profile web add "link:$(pwd)"
     listenHost: 0.0.0.0              # 默认面向局域网；'127.0.0.1' = 仅本机，或写具体网卡 IP
     listenPort: 3081                 # DSH 端口 + 1；被占用时自动顺延
     networkInterface: en0            # 可选：只在一个网卡上公布（留空 = 自动）
+    settingsUnlock: true             # 局域网设备可用官方设置页（默认开；关闭恢复 DSH 默认）
     dataDir: ~/.dsh/profiles/web/data/dsh-lan-guard   # 可选；缺省即用这个推导路径
     tls:
       mode: self-signed              # 'self-signed'（默认）| 'provided' | 'off'
@@ -135,10 +137,11 @@ dsh plugin --profile web add "link:$(pwd)"
 
 ## 兼容性
 
-当前版本：插件 **`0.3.3`**；宿主侧代码与 `0.3.2` 相同（已在 DeepSeek Harness **`0.1.7-rc.2`** 上验证）。
+当前版本：插件 **`0.3.4`**；新增一个宿主侧开关与一行 index 注入（已在 DeepSeek Harness **`0.1.7-rc.2`** 上验证）。
 
 | 插件 | 已验证的 DeepSeek Harness | 这个版本是什么 |
 | --- | --- | --- |
+| **`0.3.4`** | **`0.1.7-rc.2`**、`0.1.7-rc.1` | 局域网设备可用官方设置页：新增默认开启的 `settingsUnlock` 开关（index 注入宿主界面标记，刷新页面生效；界面解锁而非新增权限） |
 | **`0.3.3`** | **`0.1.7-rc.2`**、`0.1.7-rc.1` | 门禁体验修复：首次访问的两道关提前说明；失效链接页恢复可登录；拉黑说明改为与实现一致（未触碰宿主接口） |
 | **`0.3.2`** | **`0.1.7-rc.2`**、`0.1.7-rc.1` | 装完即用：默认对外监听 + `dataDir` 自动推导；设置页液体玻璃与官方尺寸；访问地址改为单行滚动 |
 | **`0.3.1`** | **`0.1.7-rc.2`**、`0.1.7-rc.1` | 针对 `0.1.7-rc.2` 的验证版：代码零改动，只更新兼容元数据 |
@@ -148,8 +151,9 @@ dsh plugin --profile web add "link:$(pwd)"
 | `0.1.0` | `0.1.7-rc.1` | 首个版本：门禁反向代理、自签 HTTPS、设备配对、设置页、扫码访问 |
 
 - 声明范围 `>=0.1.7-rc.1 <0.2.0`（`dsh.engines.dsh`）；未列入的 DSH 版本属**未验证**，请自行验证后再使用。
-- 本插件用到的宿主/客户端接口：`webServer.register` / `indexTaps`、`connection.requestRejection`、`connection.authenticatedUrl`、追加型 `settings.section` seat、`@deepseek-ai/schemastery`，以及 `profileContext`（用于推导默认数据目录）。
+- 本插件用到的宿主/客户端接口：`webServer.register` / `webServer.tapIndex`（indexTaps）、`connection.requestRejection`、`connection.authenticatedUrl`、追加型 `settings.section` seat、`@deepseek-ai/schemastery`，以及 `profileContext`（用于推导默认数据目录）。
 - **破坏性默认值变更（`0.3.2` 起）**：`listenHost` 默认由 `127.0.0.1` 改为 `0.0.0.0`，装完重启一次即可用；`0.3.1` 及更早默认仅回环。门禁与自签 TLS 的默认值未变（未设密码仍拒绝所有设备）。详见 [CHANGELOG](CHANGELOG.md)。
+- **`0.3.4` 的验证状态**：改动只新增一个宿主侧开关、一行 index 注入与插件自己的设置页开关（`webServer.tapIndex` 是已声明的宿主接口）；测试套件 **263 项**全绿；注入脚本已在真实 Chrome + 非回环地址实测三种状态；真实 DSH 上的装机验证在发布后进行。
 - **`0.3.3` 的验证状态**：改动只在插件自己的页面、文案与门禁表单可用性，未改动任何宿主/客户端接口；测试套件 **247 项**全绿；真实 DSH 上的装机验证在发布后进行。
 
 官方 UI 零改动复用，手机视口下自动适配：
@@ -165,6 +169,7 @@ dsh plugin --profile web add "link:$(pwd)"
 - 密钥（`secrets.json`、`devices.json`、会话）存放在 `dataDir`，权限 `600`；密码只存 PBKDF2-SHA256 哈希，设备令牌明文只返回一次，落盘只存 SHA-256 哈希，**免密链接的 token 不写日志**。
 - 代理给每个转发请求打上不可伪造的来源标记，宿主据此区分「本机操作者」与「经代理的访客」。
 - 回环直连**按设计物理免锁**——能使用这台电脑的人本就能改这些设置。
+- **官方设置页解锁（`settingsUnlock`）是界面层的兼容补丁，不是新的传输权限**：经代理的请求本就会被改写成回环 `host`，DSH 的设置接口只由门禁把关（读取被 DSH 脱敏），该开关只是让官方页面不再显示「settings are unavailable in this browser」。想恢复 DSH 原生行为，把开关关掉即可。
 - 访问密码是**共享**的：吊销设备会立即让该设备的身份 cookie 失效，但换个浏览器用密码仍可重新配对。要「同一台机器永久拉黑」需要设备指纹或每设备独立令牌，本项目刻意不用指纹。
 - 只面向局域网：不做公网隧道、不做 IM Bot、不做端口转发。
 - 插件自己**不安装、不重启、不推送**任何东西：升级命令由你复制执行。
@@ -178,6 +183,8 @@ dsh plugin --profile web add "link:$(pwd)"
 **设置页显示「端口已对局域网开放，但尚未设置访问密码」。** 这是预期的中间状态：端口可达，但门禁拒绝所有设备，不会泄露数据。去 **安全认证** 设一个访问密码即可。
 
 **「配置的端口 X 已被占用，已自动改用 Y」。** 端口被别的程序占着，插件已自行顺延。可在 **连接与证书** 换端口（带可用性检查），或释放该端口。
+
+**局域网设备打开「设置 → 模型」提示 `加载提供商目录失败: settings are unavailable in this browser`。** 这不是本插件的故障：DSH 按**页面地址栏**是否为回环决定官方设置面是否可用，局域网地址不是回环，于是设置面被永久降级。打开 **连接与证书 → 局域网设备可用官方设置页**（默认已开），然后在那个设备上**刷新页面**即可。若仍不行，确认开关确实保存成功、页面是刷新而非切换 tab，并确认 DSH 版本仍在兼容范围内。
 
 **「此设备已被移除访问权限」（403）。** 该设备已在 **已授权设备** 中被吊销或拉黑。删除那条记录即可让它重新配对（被拉黑的需先「解除拉黑」）。
 

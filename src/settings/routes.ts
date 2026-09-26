@@ -32,6 +32,7 @@ import type { AccessInfo } from '../qrcode.ts'
 import type { DeviceRecord } from '../store/secrets.ts'
 import type { DeviceStatus } from '../store/secrets.ts'
 import type { UpdateStatus } from '../update-check.ts'
+import { registerSettingsUnlock } from './index-tap.ts'
 import {
   PreferenceError,
   sanitizePreferencePatch,
@@ -149,6 +150,12 @@ export interface WebServerLike {
     path: string
     handler: (req: IncomingMessage, res: ServerResponse) => void | Promise<void>
   }): () => void
+  /**
+   * Optional raw index transform (DSH's `WebServer.tapIndex`). When the host
+   * does not expose it, the remote settings-page unlock degrades away instead
+   * of taking the plugin down.
+   */
+  tapIndex?(transform: (html: string) => string): () => void
 }
 
 /** The subset of the host `settings` service this module uses. */
@@ -293,6 +300,7 @@ export function registerManagementRoutes(options: ManagementRoutesOptions): () =
         listenPort: options.switches.listenPort(),
         listenHost: options.switches.listenHost(),
         networkInterface: options.switches.networkInterface() ?? '',
+        settingsUnlock: options.switches.settingsUnlock(),
         mode: options.switches.mode(),
         adminPolicy: options.switches.adminPolicy(),
         adminProtection: options.switches.adminProtection(),
@@ -633,6 +641,23 @@ export function registerManagementRoutes(options: ManagementRoutesOptions): () =
       sendJson(res, 200, { ok: true, port, available: await isPortAvailable(port) })
     },
   }))
+
+  /**
+   * Remote settings-page unlock.
+   *
+   * DSH disables its OFFICIAL settings surface for any page whose address bar
+   * is not loopback, which is every device arriving through this gateway; the
+   * proxy cannot change that because the decision is made in the visitor's
+   * browser. The index tap puts the flag DSH's desktop shell uses into the
+   * served document, and reads the live switch on every render so a toggle
+   * needs only a page refresh.
+   */
+  const disposeUnlock = registerSettingsUnlock({
+    webServer: options.webServer,
+    enabled: () => options.switches.settingsUnlock(),
+    logger,
+  })
+  if (disposeUnlock !== undefined) disposers.push(disposeUnlock)
 
   return () => {
     for (const dispose of disposers.reverse()) dispose()

@@ -72,6 +72,7 @@ interface ConfigSnapshot {
     listenPort: number
     listenHost: string
     networkInterface: string
+    settingsUnlock: boolean
     mode: string
     adminPolicy: string
     adminProtection: boolean
@@ -987,6 +988,30 @@ function SettingsSection(): ReactElement {
             : createElement('p', { className: 'lg-hint', key: 'scope-hint' },
               '对外可达不等于可以进入：未设访问密码时，门禁拒绝所有设备；已设密码则需通过门禁。'
               + '若只在固定网卡上公布，可在 profile patch 里把 listenHost 写成该网卡 IP。'),
+        ]),
+        // DSH's OFFICIAL settings surface is loopback-only: any page whose
+        // address bar is not 127.0.0.1/localhost gets `persistence = "memory"`,
+        // so Settings → Models reports "settings are unavailable in this
+        // browser" on every LAN device. This switch puts DSH's own `ownsHost`
+        // flag into the served index, which is what the desktop shell sets, so
+        // those pages work through the gateway too.
+        createElement('div', { className: 'lg-field', key: 'settings-unlock' }, [
+          createElement('div', { className: 'lg-toggle', key: 't' }, [
+            createElement('span', { key: 'l' }, '局域网设备可用官方设置页'),
+            createElement('button', {
+              key: 's',
+              type: 'button',
+              className: 'lg-switch',
+              'aria-checked': preferences.settingsUnlock,
+              disabled: busy,
+              onClick: () => void write({ preferences: { settingsUnlock: !preferences.settingsUnlock } }),
+            }, createElement('span', null)),
+          ]),
+          createElement('p', { className: 'lg-hint', key: 'h' },
+            '开启后（默认开启），通过门禁的设备——手机也一样——刷新页面即可使用 DSH 官方「模型」等设置页；'
+            + '关闭则恢复 DSH 默认：非本机访问会看到「settings are unavailable in this browser」。'
+            + '这是界面解锁而非新增权限：设置接口本来就只由门禁把关，读取密钥仍由 DSH 脱敏。'),
+          createElement('span', { className: 'lg-label', key: 'reload' }, '切换后刷新页面生效，无需重启 dsh。'),
         ]),
         createElement('div', { className: 'lg-field', key: 'port' }, [
           createElement('span', { className: 'lg-label', key: 'l' }, '代理端口（修改后需重启 dsh 生效）'),

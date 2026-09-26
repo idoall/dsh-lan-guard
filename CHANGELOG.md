@@ -1,5 +1,38 @@
 # Changelog
 
+## [0.3.4] — 2026-09-26（局域网设备可用官方设置页）
+
+### 新增 — 默认开启的 `settingsUnlock`：局域网设备也能用官方「模型」页
+
+**症状**（2026-09-26 用户报告）：在局域网另一台机器（含手机）打开「设置 → 模型」，报 `加载提供商目录失败: settings are unavailable in this browser`；同一台电脑用 `127.0.0.1` 打开则完全正常。
+
+**根因**（**不是本插件的故障**）：DSH 客户端按**页面地址栏**是否为回环决定官方设置面能否持久化 —— `persistence = ctx.remote.$host.isLoopback ? "host" : "memory"`；而 `isLoopback` 由连接客户端按 `transport?.ownsHost === true || pageLocation 为空 || isLoopbackHostname(pageLocation.hostname)` 推导，只认 `localhost`、`[::1]`、`127/8`。局域网地址不是回环 → 设置镜像永久停在 `unavailable` → 模型页拿不到 settings describe。**代理改写请求头改不到它**，因为这个判断发生在访客自己的浏览器里（服务端 `/api` fence 早已被 `host` 改写满足）。
+
+**改动**：新增顶层 volatile 开关 `settingsUnlock`（**默认 `true`**）。开启时，host 侧通过 DSH 公开的 `webServer.tapIndex` 往 index.html 的 `<head>` 后注入一行脚本：
+
+```html
+<script>/*dsh-lan-guard:settings-unlock*/(function(){var t=globalThis.__DSH_TRANSPORT__;globalThis.__DSH_TRANSPORT__=Object.assign({},t!==null&&typeof t==="object"?t:{},{ownsHost:true});})()</script>
+```
+
+`ownsHost` 正是 DSH 桌面壳自己设置的标记，页面因此被当作宿主自身界面。tap 每次渲染都读实时开关，**改开关只需刷新页面，不重启 dsh**；关掉即恢复 DSH 原生行为。
+
+- 新增 `src/settings/index-tap.ts`（`settingsUnlockScript` / `injectSettingsUnlock` / `registerSettingsUnlock`）：`tapIndex` 不存在时只 warn 降级，不拖垮插件；注入**只作用于 index.html**（`tapIndex` 是 `renderIndex` 的唯一入口），且早于压缩，因此**不碰代理的 `upstreamRes.pipe(res)` 热路径**，不需要缓冲/解 gzip/改 content-length；
+- `src/config.ts`、`src/store/preferences.ts`、`src/settings/routes.ts`：开关接入 schema、live switches、偏好白名单与设置快照；
+- `src/client.ts`：「连接与证书」tab 新增「局域网设备可用官方设置页」开关与说明（含「刷新生效」提示）；
+- README（中英）：开关条目、profile patch 示例、排障条目、安全边界说明。
+
+### 边界 — 这是界面解锁，不是新增传输权限
+
+- 经代理的请求本就被改写成回环 `host`，DSH 的 settings 接口只由本插件的门禁与管理员策略把关（读取仍由 DSH `redactSecrets` 脱敏）；该开关只是让官方页面不再显示「不可用」；
+- 注入采用 **merge 而非覆盖** `__DSH_TRANSPORT__`，保留上游将来写入的值；该 global 的另外两个消费点行为不变（API gateway 的 stream mux 回退 `document.baseURI`、账号登录回退 `window.location.origin`）；
+- 依赖 DSH 内部 global 名：上游若改名，此开关**静默失效**（退回原报错，不会崩）。
+
+### 验证
+
+- `pnpm run typecheck` ✓；`pnpm test` — **263 项全绿**（0.3.3 为 247 项，+16）；
+- 注入脚本在真实 Chrome、经**非回环地址**（`http://10.0.0.30:3998`）实测三种情况：无预置 global、预置对象（`streamBaseUrl` 保留且 `ownsHost` 翻真）、预置字符串（不抛错），三种结果都是 `ownsHost=true`；
+- **未验证**：真实 DSH 页面上官方「模型」页的最终可用性 —— 需要把本版本装进运行中的 profile 并重启 dsh，属发布后的单独步骤。
+
 ## [0.3.3] — 2026-09-26（门禁体验修复：两道关说清楚 + 两处死路）
 
 ### 修复 — 失效免密链接页无法输入密码（死路）

@@ -36,6 +36,7 @@ function configWith(overrides: Partial<LanGuardConfigShape['auth']> = {}): LanGu
     upstreamOrigin: 'http://127.0.0.1:3080',
     networkInterface: null,
     dataDir: null,
+    settingsUnlock: true,
     auth: {
       enabled: true,
       mode: 'token_and_password',
@@ -216,6 +217,7 @@ describe('snapshot', () => {
       listenPort: 3445,
       listenHost: '127.0.0.1',
       networkInterface: '',
+      settingsUnlock: true,
       mode: 'token_and_password',
       adminPolicy: 'local_only',
       adminProtection: true,
@@ -712,5 +714,27 @@ describe('F9 device endpoints', () => {
     const body = JSON.parse(response.body.toString())
     expect(body.pendingCount).toBe(1)
     expect(body.preferences.requireApproval).toBe(false)
+  })
+})
+
+describe('remote settings-page unlock (2026-09-26)', () => {
+  it('reports the switch in the snapshot', async () => {
+    const harnessed = await harness()
+    const response = await requestTo(harnessed.port, { path: '/plugins/dsh-lan-guard/config' })
+    expect(JSON.parse(response.body.toString()).preferences.settingsUnlock).toBe(true)
+  })
+
+  it('writes the switch through the settings service', async () => {
+    const harnessed = await harness()
+    const response = await post(harnessed.port, { preferences: { settingsUnlock: false } })
+    expect(response.status).toBe(200)
+    expect(harnessed.updates).toEqual([{ ns: 'dsh-lan-guard', patch: { settingsUnlock: false } }])
+  })
+
+  it('refuses a non-boolean', async () => {
+    const harnessed = await harness()
+    const response = await post(harnessed.port, { preferences: { settingsUnlock: 'off' } })
+    expect(response.status).toBe(400)
+    expect(harnessed.updates).toEqual([])
   })
 })

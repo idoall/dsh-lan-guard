@@ -55,6 +55,7 @@ function configWith(overrides: Partial<LanGuardConfigShape['auth']> = {}): LanGu
     upstreamOrigin: 'http://127.0.0.1:3080',
     networkInterface: null,
     dataDir: null,
+    settingsUnlock: true,
     auth: {
       enabled: true,
       mode: 'token_and_password',

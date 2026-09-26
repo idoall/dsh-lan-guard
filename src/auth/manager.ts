@@ -172,6 +172,7 @@ export class AuthManager {
       upstreamOrigin: 'http://127.0.0.1:0',
       networkInterface: null,
       dataDir: null,
+      settingsUnlock: true,
       auth: options.auth,
       tls: { mode: 'off', caCertFile: null, caKeyFile: null, certFile: null, keyFile: null, allowInsecureLan: false },
       mdns: { enabled: false },
