@@ -31,6 +31,14 @@ import {
   readCookie,
 } from './manager.ts'
 import { renderLoginPage, renderPairingPage, type LoginState } from './login-page.ts'
+import { SERVICE_WORKER_BODY } from '../pwa.ts'
+import { pwaManifest } from '../pwa.ts'
+import type { PwaIcon } from '../pwa-assets.ts'
+import {
+  resolveGateLocale,
+  type GateLocale,
+  type SettingsReaderLike,
+} from './gate-i18n.ts'
 
 /** Path prefix the gate owns on the proxy origin. */
 export const GATE_PREFIX = '/__dsh_lan_guard__'
@@ -38,6 +46,36 @@ export const GATE_PREFIX = '/__dsh_lan_guard__'
 export const LOGIN_PATH = `${GATE_PREFIX}/login`
 /** The device-pairing form's action path. */
 export const PAIR_PATH = `${GATE_PREFIX}/pair`
+/**
+ * The installability service worker.
+ *
+ * Public on purpose: the browser fetches it when the page registers it, and it
+ * carries no state, no credential and no behaviour of its own (see
+ * `../pwa.ts`). Serving it from the gate's prefix is also what lets the response
+ * carry `Service-Worker-Allowed: /`, without which the worker could never
+ * control the page and the install check would still fail.
+ */
+export const SERVICE_WORKER_PATH = `${GATE_PREFIX}/sw.js`
+/**
+ * The plugin-owned manifest and icons.
+ *
+ * Public for the same reason the worker is: the browser fetches them without a
+ * session, they carry no state, and a 401 would fail the install check before
+ * the visitor ever signs in. See `../pwa.ts` for why they exist at all.
+ */
+export const PWA_MANIFEST_PATH = `${GATE_PREFIX}/manifest.webmanifest`
+/** The 192px installability icon. */
+export const PWA_ICON_192_PATH = `${GATE_PREFIX}/icon-192.png`
+/** The 512px installability icon. */
+export const PWA_ICON_512_PATH = `${GATE_PREFIX}/icon-512.png`
+/**
+ * Upstream paths a browser must be able to read without a session.
+ *
+ * `manifest.webmanifest` is fetched with credentials omitted, and `favicon.svg`
+ * is both the browser's tab icon and the icon DSH's own manifest names. Neither
+ * carries state or reveals anything the login page does not.
+ */
+export const PUBLIC_ASSET_PATHS: ReadonlySet<string> = new Set(['/manifest.webmanifest', '/favicon.svg'])
 /** Largest accepted login body. */
 const MAX_LOGIN_BODY_BYTES = 4 * 1024
 
@@ -50,6 +88,22 @@ export interface VisitorGateOptions {
   requirePairing?: (() => boolean) | undefined
   /** Whether a paired device also needs the operator's approval (F9). */
   requireApproval?: (() => boolean) | undefined
+  /**
+   * DSH's `settings` service, read only for the locale preference.
+   *
+   * Optional: without it the gate follows `Accept-Language` instead of failing,
+   * which keeps the pages rendering on a host the plugin cannot read settings
+   * from.
+   */
+  settings?: SettingsReaderLike | undefined
+  /**
+   * The installability icons to serve.
+   *
+   * Injected rather than loaded here so the gate stays free of filesystem
+   * access, and so a host that never wired them cannot half-serve a manifest.
+   * Omitted, the manifest route answers 404 and the page keeps DSH's own.
+   */
+  pwaIcons?: PwaIcon[] | undefined
   logger?: LanGuardLogger
 }
 
@@ -92,6 +146,8 @@ export class VisitorGate {
   readonly #devices: DeviceRegistry | undefined
   readonly #requirePairing: () => boolean
   readonly #requireApproval: () => boolean
+  readonly #settings: SettingsReaderLike | undefined
+  readonly #icons: PwaIcon[]
   readonly #logger: LanGuardLogger
 
   constructor(options: VisitorGateOptions) {
@@ -99,6 +155,8 @@ export class VisitorGate {
     this.#devices = options.devices
     this.#requirePairing = options.requirePairing ?? (() => false)
     this.#requireApproval = options.requireApproval ?? (() => false)
+    this.#settings = options.settings
+    this.#icons = options.pwaIcons ?? []
     this.#logger = options.logger ?? noopLogger
   }
 
@@ -134,10 +192,38 @@ export class VisitorGate {
       return 'handled'
     }
 
+    if (url.pathname === SERVICE_WORKER_PATH) {
+      if (req.method !== 'GET' && req.method !== 'HEAD') {
+        this.#sendJson(res, 405, { ok: false, error: 'method_not_allowed' })
+        return 'handled'
+      }
+      this.#sendServiceWorker(res)
+      return 'handled'
+    }
+
+    if (url.pathname === PWA_MANIFEST_PATH || url.pathname === PWA_ICON_192_PATH
+      || url.pathname === PWA_ICON_512_PATH) {
+      if (req.method !== 'GET' && req.method !== 'HEAD') {
+        this.#sendJson(res, 405, { ok: false, error: 'method_not_allowed' })
+        return 'handled'
+      }
+      this.#sendPwaAsset(req, res, url.pathname)
+      return 'handled'
+    }
+
     if (url.pathname.startsWith(`${GATE_PREFIX}/`)) {
       this.#sendJson(res, 404, { ok: false, error: 'not_found' })
       return 'handled'
     }
+
+    // DSH's own static install assets, forwarded WITHOUT a session.
+    //
+    // The browser fetches the manifest and its icons with credentials omitted,
+    // so gating them returned 401 and the install check saw no manifest at all
+    // — "cannot install this app", while DSH's own unproxied origin worked
+    // (reported 2026-10-04). They are static, public and non-sensitive: the
+    // login page already announces what this host is.
+    if (PUBLIC_ASSET_PATHS.has(url.pathname)) return 'allow'
 
     // A device identity is the durable credential: once paired, a device is
     // recognised by its own cookie, and revoking the record cuts it off here.
@@ -284,6 +370,7 @@ export class VisitorGate {
     const html = renderPairingPage({
       defaultLabel: guessDeviceLabel(req.headers['user-agent']),
       ip: clientIp(req),
+      locale: this.#localeOf(req),
       ...(error === undefined ? {} : { error }),
     })
     res.writeHead(200, {
@@ -461,6 +548,22 @@ export class VisitorGate {
     this.#sendLoginPage(req, res, 'prompt', 401, undefined, next)
   }
 
+  /**
+   * The language this request's pages are served in.
+   *
+   * DSH's stored preference — the one the official settings page writes — wins;
+   * a browser with none follows what it asks for, which is DSH's own rule for a
+   * visitor it has never seen. Resolved per request, so changing the language in
+   * Settings takes effect on the next page load with no restart.
+   */
+  #localeOf(req: IncomingMessage): GateLocale {
+    return resolveGateLocale({
+      settings: this.#settings,
+      acceptLanguage: req.headers['accept-language'],
+      logger: this.#logger,
+    })
+  }
+
   /** Write the login page. */
   #sendLoginPage(
     req: IncomingMessage,
@@ -473,6 +576,7 @@ export class VisitorGate {
     const html = renderLoginPage({
       state,
       mode: this.#auth.mode,
+      locale: this.#localeOf(req),
       // The visitor must be told that a second gate (naming) follows the
       // password; it is only true while the pairing switch is on.
       pairingRequired: this.#requirePairing(),
@@ -495,6 +599,63 @@ export class VisitorGate {
       'cache-control': 'no-store',
     })
     res.end(`${JSON.stringify(body)}\n`)
+  }
+
+  /**
+   * Serve the installability worker.
+   *
+   * `Service-Worker-Allowed: /` is the whole point of serving it from here: the
+   * script lives under the gate's prefix, and without that header its maximum
+   * scope would be that prefix, so it would never control the application page
+   * and the browser would keep refusing to install.
+   *
+   * `no-cache` (rather than `no-store`) matches how browsers treat worker
+   * scripts: they revalidate on every registration, and a stored copy older
+   * than 24 h is bypassed anyway.
+   */
+  /**
+   * Serve the manifest or one installability icon.
+   *
+   * The icons are read once at startup: they are build artifacts of this
+   * package, so a missing file is a packaging error worth failing on rather
+   * than papering over with a 404 the install check would report as an
+   * unexplained refusal.
+   */
+  #sendPwaAsset(req: IncomingMessage, res: ServerResponse, pathname: string): void {
+    if (pathname === PWA_MANIFEST_PATH) {
+      const body = pwaManifest({ icon192: PWA_ICON_192_PATH, icon512: PWA_ICON_512_PATH })
+      res.writeHead(200, {
+        'content-type': 'application/manifest+json; charset=utf-8',
+        'cache-control': 'no-cache',
+        'x-content-type-options': 'nosniff',
+      })
+      res.end(req.method === 'HEAD' ? undefined : body)
+      return
+    }
+    const size = pathname === PWA_ICON_192_PATH ? 192 : 512
+    const icon = this.#icons.find(entry => entry.size === size)
+    if (icon === undefined) {
+      this.#sendJson(res, 404, { ok: false, error: 'not_found' })
+      return
+    }
+    res.writeHead(200, {
+      'content-type': 'image/png',
+      'content-length': String(icon.bytes.byteLength),
+      'cache-control': 'public, max-age=86400',
+      'x-content-type-options': 'nosniff',
+    })
+    res.end(req.method === 'HEAD' ? undefined : icon.bytes)
+  }
+
+  #sendServiceWorker(res: ServerResponse): void {
+    res.writeHead(200, {
+      'content-type': 'application/javascript; charset=utf-8',
+      'service-worker-allowed': '/',
+      'cache-control': 'no-cache',
+      // The worker script is same-origin plumbing; it must never be embedded.
+      'x-content-type-options': 'nosniff',
+    })
+    res.end(SERVICE_WORKER_BODY)
   }
 }
 

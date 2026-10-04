@@ -10,6 +10,9 @@ import { randomBytes } from 'node:crypto'
 import { connect, type Socket } from 'node:net'
 import { afterEach, describe, expect, it } from 'vitest'
 import { startLanGuard, type LanGuardRuntime } from '../src/index.ts'
+import { GATE_PREFIX, SERVICE_WORKER_PATH } from '../src/auth/gate.ts'
+import { renderPairingPage } from '../src/auth/login-page.ts'
+import { PWA_ICON_192_PATH, PWA_ICON_512_PATH, PWA_MANIFEST_PATH } from '../src/auth/gate.ts'
 import type { LanGuardLogger } from '../src/log.ts'
 import { startFakeDsh, type FakeDsh } from './helpers/fake-dsh.ts'
 import { requestTo, type RawResponse } from './helpers/http-client.ts'
@@ -32,8 +35,20 @@ function silentLogger(): LanGuardLogger {
   return { info() {}, warn() {}, debug() {} }
 }
 
-/** Bring up a gated proxy over a fake upstream. */
-async function harness(config: Record<string, unknown> = {}, password = PASSWORD): Promise<{
+/**
+ * Bring up a gated proxy over a fake upstream.
+ *
+ * @param config - plugin config overrides.
+ * @param password - the access password to install, or '' for none.
+ * @param settingsReader - a stand-in for DSH's settings service. Only the locale
+ *   resolution reads it; the language specs below use it to prove the gate's own
+ *   pages follow the preference the official settings page writes.
+ */
+async function harness(
+  config: Record<string, unknown> = {},
+  password = PASSWORD,
+  settingsReader?: { describe(): readonly { ns: string; value?: unknown }[] },
+): Promise<{
   fake: FakeDsh
   runtime: LanGuardRuntime
   port: number
@@ -42,6 +57,7 @@ async function harness(config: Record<string, unknown> = {}, password = PASSWORD
   const started = await startLanGuard({
     authenticatedUrl: upstream.authenticatedUrl,
     logger: silentLogger(),
+    ...(settingsReader === undefined ? {} : { settingsReader }),
   }, {
     dataDir: await tmpDataDir(),
     listenHost: '127.0.0.1',
@@ -152,6 +168,227 @@ describe('unauthenticated access', () => {
     const response = await requestTo(port, { path: '/__dsh_lan_guard__/whatever' })
     expect(response.status).toBe(404)
     expect(upstream.observed.filter(entry => !entry.url.includes('token='))).toHaveLength(0)
+  })
+})
+
+describe('installability service worker', () => {
+  it('is served publicly, from the gate path, scoped to the whole origin', async () => {
+    const { port } = await harness()
+    // No session, no cookie: the browser fetches the worker at registration
+    // time, and the script itself carries no state and no credential.
+    const response = await requestTo(port, { path: SERVICE_WORKER_PATH })
+    expect(response.status).toBe(200)
+    expect(response.headers['content-type']).toContain('application/javascript')
+    // Without this header the worker's scope would be its own directory, it
+    // would never control the page, and Chromium would keep refusing to
+    // install — which is the whole reason the route exists.
+    expect(response.headers['service-worker-allowed']).toBe('/')
+    expect(response.headers['x-content-type-options']).toBe('nosniff')
+    expect(response.body.toString()).toContain("addEventListener('fetch'")
+    expect(response.headers['content-type']).not.toContain('text/html')
+  })
+
+  it('never intercepts a request', async () => {
+    const { port } = await harness()
+    const body = (await requestTo(port, { path: SERVICE_WORKER_PATH })).body.toString()
+    // respondWith is what would put the worker between a visitor and an
+    // authenticated, cookie-carrying, streaming app. It must never appear.
+    expect(body).not.toContain('respondWith')
+    expect(body).not.toContain('caches')
+  })
+
+  it('refuses a write, like every other gate asset', async () => {
+    const { port } = await harness()
+    const response = await requestTo(port, { method: 'POST', path: SERVICE_WORKER_PATH })
+    expect(response.status).toBe(405)
+    expect(JSON.parse(response.body.toString())).toEqual({ ok: false, error: 'method_not_allowed' })
+  })
+
+  it('answers the rest of the gate prefix with a JSON 404', async () => {
+    const { port } = await harness()
+    const response = await requestTo(port, { path: `${GATE_PREFIX}/nope` })
+    expect(response.status).toBe(404)
+    expect(JSON.parse(response.body.toString())).toEqual({ ok: false, error: 'not_found' })
+  })
+})
+
+
+describe('gate page language', () => {
+  it('follows the preference the official settings page stored', async () => {
+    const { port } = await harness({}, PASSWORD, {
+      describe: () => [{ ns: 'locale', value: { preference: 'en' } }],
+    })
+    const page = await requestTo(port, {
+      path: '/',
+      // The browser asks for Chinese; the STORED preference still wins, because
+      // that is the setting the user actually chose.
+      headers: { accept: 'text/html', 'accept-language': 'zh-CN,zh;q=0.9' },
+    })
+    expect(page.headers['content-type']).toContain('text/html')
+    expect(page.body.toString()).toContain('Access password')
+    expect(page.body.toString()).toContain('Enter DSH')
+    expect(page.body.toString()).not.toContain('访问密码')
+  })
+
+  it('serves Chinese when that is the stored preference', async () => {
+    const { port } = await harness({}, PASSWORD, {
+      describe: () => [{ ns: 'locale', value: { preference: 'zh' } }],
+    })
+    const page = await requestTo(port, {
+      path: '/',
+      headers: { accept: 'text/html', 'accept-language': 'en-US,en;q=0.9' },
+    })
+    expect(page.body.toString()).toContain('访问密码')
+    expect(page.body.toString()).not.toContain('Access password')
+  })
+
+  it('declares the matching document language', async () => {
+    const english = await harness({}, PASSWORD, {
+      describe: () => [{ ns: 'locale', value: { preference: 'en' } }],
+    })
+    const englishPage = await requestTo(english.port, { path: '/', headers: { accept: 'text/html' } })
+    expect(englishPage.body.toString()).toContain('<html lang="en">')
+
+    await runtime?.close()
+    runtime = undefined
+    const chinese = await harness({}, PASSWORD, {
+      describe: () => [{ ns: 'locale', value: { preference: 'zh' } }],
+    })
+    const chinesePage = await requestTo(chinese.port, { path: '/', headers: { accept: 'text/html' } })
+    expect(chinesePage.body.toString()).toContain('<html lang="zh-CN">')
+  })
+
+  it('follows the browser only while no preference is stored', async () => {
+    // DSH's own rule for a browser it has never seen: the first supported
+    // language it asks for.
+    const { port } = await harness({}, PASSWORD, { describe: () => [] })
+    const english = await requestTo(port, {
+      path: '/',
+      headers: { accept: 'text/html', 'accept-language': 'en-GB,en;q=0.8' },
+    })
+    expect(english.body.toString()).toContain('Access password')
+
+    const chinese = await requestTo(port, {
+      path: '/',
+      headers: { accept: 'text/html', 'accept-language': 'zh-Hans-CN,zh;q=0.9' },
+    })
+    expect(chinese.body.toString()).toContain('访问密码')
+  })
+
+  it('keeps rendering when the settings service cannot be read', async () => {
+    // A refusal to read settings must never take the gate's pages down.
+    const { port } = await harness({}, PASSWORD, {
+      describe: () => {
+        throw new Error('settings unavailable')
+      },
+    })
+    const page = await requestTo(port, {
+      path: '/',
+      headers: { accept: 'text/html', 'accept-language': 'en' },
+    })
+    expect(page.status).toBe(401)
+    expect(page.body.toString()).toContain('Access password')
+  })
+
+  it('translates the pairing hint on the login form', async () => {
+    const { port } = await harness({ auth: { requirePairing: true } }, PASSWORD, {
+      describe: () => [{ ns: 'locale', value: { preference: 'en' } }],
+    })
+    const page = await requestTo(port, { path: '/', headers: { accept: 'text/html' } })
+    // The second gate has to be announced in the same language as the first —
+    // a half-translated page is worse than an untranslated one.
+    expect(page.body.toString()).toContain('First visit: naming the device follows')
+  })
+
+  it('translates the pairing page itself', () => {
+    // Reached only after a successful login, so it is asserted on the renderer
+    // the gate calls rather than through a second HTTP round trip.
+    const html = renderPairingPage({ defaultLabel: 'My phone', ip: '192.168.1.9', locale: 'en' })
+    expect(html).toContain('Confirm this device')
+    expect(html).toContain('Confirm and enter DSH')
+    expect(html).toContain('Source address: 192.168.1.9')
+    expect(html).not.toContain('确认')
+    expect(html).toContain('<html lang="en">')
+  })
+})
+
+
+describe('installability assets', () => {
+  // Chrome's documented install criteria: "icons - must include a 192px and a
+  // 512px icon". DSH's own manifest declares a single SVG with `sizes: "any"`,
+  // which is why an Android browser offered only "create a shortcut" and
+  // reported "cannot install this app" (reported 2026-10-04). The gate serves a
+  // manifest that mirrors DSH's and replaces the icon list.
+  it('serves a manifest whose icons meet the documented criteria', async () => {
+    const { port } = await harness()
+    const response = await requestTo(port, { path: PWA_MANIFEST_PATH })
+    expect(response.status).toBe(200)
+    expect(response.headers['content-type']).toContain('application/manifest+json')
+    const manifest = JSON.parse(response.body.toString()) as {
+      name: string
+      short_name: string
+      start_url: string
+      scope: string
+      display: string
+      icons: { src: string; sizes: string; type: string }[]
+    }
+    // Everything DSH already satisfied is mirrored, so the installed app is
+    // still "DSH" rather than a renamed copy of it.
+    expect(manifest.name).toBe('DeepSeek Harness')
+    expect(manifest.short_name).toBe('DSH')
+    // ABSOLUTE on purpose: this manifest lives at a deep gate path, and a
+    // relative start_url resolves against the manifest's own URL — `"./"` sent
+    // the installed app to `/__dsh_lan_guard__/`, the gate's 404.
+    expect(manifest.start_url).toBe('/')
+    expect(manifest.scope).toBe('/')
+    expect(manifest.display).toBe('fullscreen')
+    const sizes = manifest.icons.map(icon => icon.sizes)
+    expect(sizes).toContain('192x192')
+    expect(sizes).toContain('512x512')
+    expect(manifest.icons.filter(icon => icon.type === 'image/png')).toHaveLength(2)
+  })
+
+  it('serves both icons as real PNGs of the size the manifest claims', async () => {
+    const { port } = await harness()
+    for (const [path, size] of [[PWA_ICON_192_PATH, 192], [PWA_ICON_512_PATH, 512]] as const) {
+      const icon = await requestTo(port, { path })
+      expect(icon.status, path).toBe(200)
+      expect(icon.headers['content-type']).toBe('image/png')
+      // PNG signature, then the IHDR dimensions at a fixed offset: proof these
+      // are the declared size and not a placeholder the check would reject.
+      expect(icon.body.subarray(0, 8))
+        .toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
+      expect(icon.body.readUInt32BE(16)).toBe(size)
+      expect(icon.body.readUInt32BE(20)).toBe(size)
+    }
+  })
+
+  it('serves them without a session, so the install check never sees a 401', async () => {
+    // The browser fetches these before any sign-in; a gate refusal reads as an
+    // unexplained "cannot install this app".
+    const { port } = await harness()
+    for (const path of [PWA_MANIFEST_PATH, PWA_ICON_192_PATH, PWA_ICON_512_PATH]) {
+      const response = await requestTo(port, { path })
+      expect(response.status, path).toBe(200)
+    }
+  })
+
+  it('forwards DSH\'s own manifest and favicon without a session', async () => {
+    // The browser fetches these with credentials omitted. Gating them made the
+    // manifest fetch fail with 401, so the install check saw no manifest at all
+    // — which is why DSH's own unproxied origin could install and this could
+    // not (reported 2026-10-04).
+    const { port } = await harness()
+    for (const path of ['/manifest.webmanifest', '/favicon.svg']) {
+      const response = await requestTo(port, { path })
+      expect(response.status, path).toBe(200)
+    }
+  })
+
+  it('refuses a write method on them', async () => {
+    const { port } = await harness()
+    const response = await requestTo(port, { path: PWA_MANIFEST_PATH, method: 'POST' })
+    expect(response.status).toBe(405)
   })
 })
 
@@ -489,7 +726,7 @@ describe('first-visit guidance: the second gate is announced', () => {
     const page = await requestTo(port, { path: '/', headers: { accept: 'text/html' } })
     expect(page.status).toBe(401)
     expect(page.body.toString()).toContain('首次访问')
-    expect(page.body.toString()).toContain('给这台设备起个名字')
+    expect(page.body.toString()).toContain('需为设备命名')
   })
 
   it('announces it on the inert-link page too, where a login is still possible', async () => {
@@ -500,7 +737,7 @@ describe('first-visit guidance: the second gate is announced', () => {
     })
     expect(page.status).toBe(401)
     expect(page.body.toString()).toContain('免密链接无效')
-    expect(page.body.toString()).toContain('给这台设备起个名字')
+    expect(page.body.toString()).toContain('需为设备命名')
   })
 
   it('stays silent when pairing is switched off, so it never promises a name page', async () => {
@@ -508,7 +745,7 @@ describe('first-visit guidance: the second gate is announced', () => {
     const page = await requestTo(port, { path: '/', headers: { accept: 'text/html' } })
     expect(page.status).toBe(401)
     expect(page.body.toString()).toContain('访问密码')
-    expect(page.body.toString()).not.toContain('给这台设备起个名字')
+    expect(page.body.toString()).not.toContain('需为设备命名')
   })
 
   it('stays silent where a login cannot proceed at all', async () => {
@@ -517,7 +754,7 @@ describe('first-visit guidance: the second gate is announced', () => {
     const page = await requestTo(port, { path: '/', headers: { accept: 'text/html' } })
     expect(page.status).toBe(403)
     expect(page.body.toString()).toContain('尚未设置访问密码')
-    expect(page.body.toString()).not.toContain('给这台设备起个名字')
+    expect(page.body.toString()).not.toContain('需为设备命名')
   })
 })
 

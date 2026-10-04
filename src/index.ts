@@ -41,6 +41,8 @@ import {
   type SettingsWriterLike,
   type WebServerLike,
 } from './settings/routes.ts'
+import type { SettingsReaderLike } from './auth/gate-i18n.ts'
+import { loadPwaIcons } from './pwa-assets.ts'
 import { DeviceRegistry } from './store/devices.ts'
 import { SecretsStore } from './store/secrets.ts'
 import { ensureCa, fingerprintOf } from './tls/ca.ts'
@@ -86,6 +88,12 @@ export interface LanGuardHost {
    * `<profileDir>/data/dsh-lan-guard` instead of demanding hand-written config.
    */
   profileDir?: string | undefined
+  /**
+   * DSH's `settings` service, read only so the gate's own pages can follow the
+   * language the official settings page writes. Omitted, the pages fall back to
+   * the visitor's `Accept-Language` instead of failing.
+   */
+  settingsReader?: SettingsReaderLike | undefined
   /** Logger; credentials are never passed to it. */
   logger?: LanGuardLogger
   /** Register the management surface; omitted when no DSH seams are available (unit tests). */
@@ -177,8 +185,12 @@ export async function startLanGuard(host: LanGuardHost, rawConfig: unknown): Pro
   const gate = new VisitorGate({
     auth,
     devices,
+    // Read once: a missing icon is a packaging error, and the install check
+    // would otherwise report it as an unexplained refusal.
+    pwaIcons: await loadPwaIcons(),
     requirePairing: () => switches.requirePairing(),
     requireApproval: () => switches.requireApproval(),
+    settings: host.settingsReader,
     logger,
   })
   const upstreamAuth = new UpstreamAuth({
@@ -370,6 +382,7 @@ export async function apply(ctx: Context, rawConfig: unknown): Promise<void> {
     webServerPort: ctx.webServer.port,
     profileDir: activeProfileDir(ctx),
     logger,
+    settingsReader: optionalSettings(ctx),
     registerManagement: deps => registerManagementRoutes({
       connection: { requestRejection: request => ctx.connection.requestRejection(request) },
       webServer: ctx.webServer as unknown as WebServerLike,
