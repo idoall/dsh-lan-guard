@@ -31,6 +31,15 @@
  */
 import type { LanGuardLogger } from '../log.ts'
 import { noopLogger } from '../log.ts'
+import {
+  documentLanguageScript,
+  LANGUAGE_MARKER,
+  PWA_MARKER,
+  pwaInstallScript,
+  pwaManifestScript,
+  PWA_MANIFEST_MARKER,
+} from '../pwa.ts'
+import { PWA_MANIFEST_PATH, SERVICE_WORKER_PATH } from '../auth/gate.ts'
 
 /** The page global DSH's connection client reads its transport facts from. */
 export const TRANSPORT_GLOBAL = '__DSH_TRANSPORT__'
@@ -65,6 +74,14 @@ export interface IndexPatchSwitches {
   socketWatchdog(): boolean
   /** Install the narrow-screen scroll correction. */
   mobileScrollFix(): boolean
+  /**
+   * Register the installability service worker (default true).
+   *
+   * Independent of `mobileCompat` because it is a different KIND of change: the
+   * shims patch an API for the length of one page, while a service worker is a
+   * registration that outlives the page and every later one.
+   */
+  pwaInstall(): boolean
 }
 
 /**
@@ -417,6 +434,47 @@ export function injectSocketWatchdog(html: string): string {
   return insertAfterHead(html, socketWatchdogScript())
 }
 
+/**
+ * Register the installability service worker.
+ *
+ * @param html - the index body as DSH rendered it.
+ * @returns the body with the registration inserted.
+ */
+/**
+ * Point the served page at the gate's own manifest.
+ *
+ * Separate from {@link injectPwaInstall} because the two fail independently:
+ * the worker is an older-browser nicety, while the manifest is what the install
+ * check actually reads. The swap is a no-op on DSH's own origin — see
+ * `../pwa.ts`.
+ *
+ * @param html - the served index document.
+ * @returns the document with the swap script injected.
+ */
+export function injectPwaManifest(html: string): string {
+  if (html.includes(PWA_MANIFEST_MARKER)) return html
+  return insertAfterHead(html, pwaManifestScript(PWA_MANIFEST_PATH))
+}
+
+export function injectPwaInstall(html: string): string {
+  if (html.includes(PWA_MARKER)) return html
+  return insertAfterHead(html, pwaInstallScript(SERVICE_WORKER_PATH))
+}
+
+/**
+ * Correct the document's declared language.
+ *
+ * Runs on every index render, under no switch: it is not a shim but a fix for a
+ * value the served document gets wrong (see {@link documentLanguageScript}).
+ *
+ * @param html - the index body as DSH rendered it.
+ * @returns the body with the language script inserted.
+ */
+export function injectDocumentLanguage(html: string): string {
+  if (html.includes(LANGUAGE_MARKER)) return html
+  return insertAfterHead(html, documentLanguageScript())
+}
+
 /** Add the mobile metas and upgrade the viewport tag, idempotently. */
 function injectMobileMetas(html: string): string {
   if (html.includes(MOBILE_META_MARKER)) return html
@@ -467,6 +525,14 @@ export function registerIndexPatches(options: RegisterIndexPatchesOptions): (() 
     if (options.switches.mobileScrollFix()) out = injectMobileScrollFix(out)
     if (options.switches.socketWatchdog()) out = injectSocketWatchdog(out)
     if (options.switches.settingsUnlock()) out = injectSettingsUnlock(out)
+    if (options.switches.pwaInstall()) {
+      out = injectPwaInstall(out)
+      out = injectPwaManifest(out)
+    }
+    // Applied LAST because every insert lands immediately after `<head>`: the
+    // last one written is the first one parsed, and the language has to be
+    // right before anything else the page does.
+    out = injectDocumentLanguage(out)
     return out
   })
 }
