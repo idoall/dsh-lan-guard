@@ -361,6 +361,7 @@ describe('apply', () => {
       mobileCompat: false,
       socketWatchdog: false,
       mobileScrollFix: false,
+      mobileTurnRail: false,
       auth: { allowLoopback: true },
     })
 

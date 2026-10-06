@@ -41,6 +41,8 @@ export interface PreferenceValues {
   mobileCompat: boolean
   /** Whether the served page carries the narrow-screen scroll correction (default true). */
   mobileScrollFix: boolean
+  /** Whether the served page un-hides DSH's own turn-navigation rail on narrow screens (default false). */
+  mobileTurnRail: boolean
   /** Whether a new device must name itself once before it is let in. */
   requirePairing: boolean
   /** Whether a new device also needs the operator's approval (F9). */
@@ -54,7 +56,8 @@ export interface PreferenceValues {
 /** The switch keys, in display order. */
 export const PREFERENCE_KEYS = [
   'enabled', 'listenPort', 'listenHost', 'networkInterface', 'settingsUnlock', 'answerHeartbeat', 'socketWatchdog',
-  'mobileCompat', 'mobileScrollFix', 'mode', 'adminPolicy', 'adminProtection', 'allowLoopback', 'requirePairing',
+  'mobileCompat', 'mobileScrollFix', 'mobileTurnRail', 'mode', 'adminPolicy', 'adminProtection', 'allowLoopback',
+  'requirePairing',
   'requireApproval',
 ] as const
 
@@ -92,6 +95,7 @@ export function readPreferences(config: {
   socketWatchdog: boolean
   mobileCompat: boolean
   mobileScrollFix: boolean
+  mobileTurnRail: boolean
   auth: {
     mode: AuthMode
     adminPolicy: AdminPolicy
@@ -111,6 +115,7 @@ export function readPreferences(config: {
     socketWatchdog: config.socketWatchdog,
     mobileCompat: config.mobileCompat,
     mobileScrollFix: config.mobileScrollFix,
+    mobileTurnRail: config.mobileTurnRail,
     requirePairing: config.auth.requirePairing,
     requireApproval: config.auth.requireApproval,
     mode: config.auth.mode,
@@ -173,7 +178,7 @@ export function sanitizePreferencePatch(patch: unknown): Partial<PreferenceValue
     if (typeof source.settingsUnlock !== 'boolean') throw new PreferenceError('settingsUnlock must be a boolean')
     result.settingsUnlock = source.settingsUnlock
   }
-  for (const key of ['answerHeartbeat', 'socketWatchdog', 'mobileCompat', 'mobileScrollFix'] as const) {
+  for (const key of ['answerHeartbeat', 'socketWatchdog', 'mobileCompat', 'mobileScrollFix', 'mobileTurnRail'] as const) {
     if (!Object.hasOwn(source, key)) continue
     if (typeof source[key] !== 'boolean') throw new PreferenceError(`${key} must be a boolean`)
     result[key] = source[key]
@@ -228,6 +233,7 @@ export function toSettingsPatch(values: Partial<PreferenceValues>): Record<strin
   if (values.socketWatchdog !== undefined) patch.socketWatchdog = values.socketWatchdog
   if (values.mobileCompat !== undefined) patch.mobileCompat = values.mobileCompat
   if (values.mobileScrollFix !== undefined) patch.mobileScrollFix = values.mobileScrollFix
+  if (values.mobileTurnRail !== undefined) patch.mobileTurnRail = values.mobileTurnRail
   if (values.requirePairing !== undefined) auth.requirePairing = values.requirePairing
   if (values.requireApproval !== undefined) auth.requireApproval = values.requireApproval
   if (values.mode !== undefined) auth.mode = values.mode

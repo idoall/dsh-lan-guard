@@ -356,3 +356,25 @@ describe('mobile resilience switches (2026-09-28)', () => {
     expect(sanitizePreferencePatch({ answerHeartbeat: true, somethingElse: true })).toEqual({ answerHeartbeat: true })
   })
 })
+
+describe('mobile turn rail (2026-10-06)', () => {
+  it('defaults OFF: it un-hides a surface DSH deliberately removed on narrow screens', () => {
+    expect(parseConfig({ dataDir: '/tmp/x' }).mobileTurnRail).toBe(false)
+  })
+
+  it('is volatile, so flipping it needs only a page refresh', async () => {
+    const { Config, liveSwitches, parseConfig: parse } = await import('../src/config.ts')
+    const resolved = Config({ dataDir: '/tmp/x', mobileTurnRail: true } as never) as unknown
+    expect((resolved as Record<string, unknown>).mobileTurnRail).toBeTypeOf('object')
+    const parsed = parse(resolved)
+    expect(parsed.mobileTurnRail).toBe(true)
+    expect(liveSwitches(resolved, parsed).mobileTurnRail()).toBe(true)
+  })
+
+  it('accepts a boolean from the settings page and refuses anything else', async () => {
+    const { sanitizePreferencePatch, toSettingsPatch } = await import('../src/store/preferences.ts')
+    expect(sanitizePreferencePatch({ mobileTurnRail: true })).toEqual({ mobileTurnRail: true })
+    expect(toSettingsPatch({ mobileTurnRail: true })).toEqual({ mobileTurnRail: true })
+    expect(() => sanitizePreferencePatch({ mobileTurnRail: 'on' })).toThrow(/boolean/)
+  })
+})

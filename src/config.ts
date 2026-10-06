@@ -146,6 +146,19 @@ export interface LanGuardConfigShape {
    * clipping overflowing content.
    */
   mobileScrollFix: boolean
+  /**
+   * Whether the served index un-hides DSH's own turn-navigation rail on narrow
+   * screens (default FALSE — the only off-by-default mobile patch).
+   *
+   * DSH renders that rail on a phone but hides it with its own container query
+   * (`@container (max-width: 900px)`), so the plugin can bring the PC behaviour
+   * to the phone with a scoped stylesheet instead of reimplementing it. It stays
+   * off by default because it changes a visual DSH deliberately removed, the
+   * rail's 24×10px marks are below the touch-target size the rest of this
+   * plugin holds itself to, and this cut has not been through on-device
+   * acceptance yet. Applies to the next page load.
+   */
+  mobileTurnRail: boolean
   /** Visitor-side gate configuration. */
   auth: AuthConfigShape
   /** Transport security configuration. */
@@ -224,6 +237,10 @@ export const Config: z<LanGuardConfigShape, Record<string, unknown>> = z.object(
   socketWatchdog: z.boolean().default(true).volatile(),
   mobileCompat: z.boolean().default(true).volatile(),
   mobileScrollFix: z.boolean().default(true).volatile(),
+  // The one mobile patch that is OFF by default: it un-hides an official
+  // surface DSH chose to hide on narrow screens, and its touch targets are
+  // smaller than this plugin's own 44px rule. Opt in, then judge on the phone.
+  mobileTurnRail: z.boolean().default(false).volatile(),
   auth: z.object({
     // NOT volatile on purpose (PLAN §5 工作项 9 lists the writable switches):
     // the gate master switch is a startup-safety field (SPEC §5 principle 3),
@@ -283,6 +300,8 @@ export interface LiveSwitches {
   mobileCompat(): boolean
   /** Whether the served index carries the narrow-screen scroll correction. */
   mobileScrollFix(): boolean
+  /** Whether the served index un-hides DSH's own turn-navigation rail on narrow screens. */
+  mobileTurnRail(): boolean
   /** Whether an unnamed device must pair before it is let in. */
   requirePairing(): boolean
   /** Whether a paired device still needs the operator's approval (F9). */
@@ -324,6 +343,7 @@ export function liveSwitches(rawConfig: unknown, resolved: LanGuardConfigShape):
     socketWatchdog: () => readField(root.socketWatchdog, resolved.socketWatchdog),
     mobileCompat: () => readField(root.mobileCompat, resolved.mobileCompat),
     mobileScrollFix: () => readField(root.mobileScrollFix, resolved.mobileScrollFix),
+    mobileTurnRail: () => readField(root.mobileTurnRail, resolved.mobileTurnRail),
     mode: () => readField(root.auth === undefined ? undefined : auth.mode, resolved.auth.mode),
     adminPolicy: () => readField(root.auth === undefined ? undefined : auth.adminPolicy, resolved.auth.adminPolicy),
     adminProtection: () => readField(
@@ -351,6 +371,7 @@ export function staticSwitches(config: LanGuardConfigShape): LiveSwitches {
     socketWatchdog: () => config.socketWatchdog,
     mobileCompat: () => config.mobileCompat,
     mobileScrollFix: () => config.mobileScrollFix,
+    mobileTurnRail: () => config.mobileTurnRail,
     mode: () => config.auth.mode,
     adminPolicy: () => config.auth.adminPolicy,
     adminProtection: () => config.auth.adminProtection,
@@ -484,7 +505,7 @@ function unwrapVolatileInput(input: unknown): unknown {
   const result: Record<string, unknown> = { ...source }
   for (const key of [
     'enabled', 'networkInterface', 'listenPort', 'listenHost', 'settingsUnlock',
-    'answerHeartbeat', 'socketWatchdog', 'mobileCompat', 'mobileScrollFix',
+    'answerHeartbeat', 'socketWatchdog', 'mobileCompat', 'mobileScrollFix', 'mobileTurnRail',
   ]) {
     const value = result[key]
     if (isVolatileLike(value)) result[key] = (value as { get(): unknown }).get()
@@ -542,6 +563,7 @@ export function parseConfig(input: unknown, profileDir?: string | undefined): La
     socketWatchdog: readField(resolved.socketWatchdog, true),
     mobileCompat: readField(resolved.mobileCompat, true),
     mobileScrollFix: readField(resolved.mobileScrollFix, true),
+    mobileTurnRail: readField(resolved.mobileTurnRail, false),
     auth: {
       enabled: readField(rawAuth.enabled, true),
       mode: readField(rawAuth.mode, 'token_and_password'),

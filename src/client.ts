@@ -79,6 +79,7 @@ interface ConfigSnapshot {
     socketWatchdog: boolean
     mobileCompat: boolean
     mobileScrollFix: boolean
+    mobileTurnRail: boolean
     mode: string
     adminPolicy: string
     adminProtection: boolean
@@ -732,7 +733,8 @@ function SettingsSection(): ReactElement {
       const patches = (globalThis as { __DSH_LAN_GUARD__?: Record<string, unknown> }).__DSH_LAN_GUARD__ ?? {}
       lines.push(`页面补丁：官方设置页解锁 ${patches.settingsUnlock === true ? '✓' : '—'}`
         + ` · 移动端兼容垫片 ${patches.mobileCompat === true ? '✓' : '—'}`
-        + ` · 断线看门狗 ${patches.socketWatchdog === true ? '✓' : '—'}`)
+        + ` · 断线看门狗 ${patches.socketWatchdog === true ? '✓' : '—'}`
+        + ` · 轮次导航 ${patches.mobileTurnRail === true ? '✓' : patches.mobileTurnRail === 'reverted' ? '✗ 已回退' : '—'}`)
       const missing: string[] = []
       if (typeof AbortSignal.any !== 'function') missing.push('AbortSignal.any')
       if (typeof AbortSignal.timeout !== 'function') missing.push('AbortSignal.timeout')
@@ -1260,6 +1262,27 @@ function SettingsSection(): ReactElement {
             '手机上 DSH 自己的外壳会把对话列压在固定的输入框/目标条/快捷回复浮层后面，导致内容可见但**滑不动**'
             + '（同一视口在桌面 Chrome 里能滚，属 iOS 布局/触摸差异）。开启后，页面会在「整页不可滚 + 发现被裁剪的层」时'
             + '把那几层改成可触摸滚动；能正常滚动的页面一律不碰。打开页面时加 ?lgdiag=1 会显示一屏布局诊断。'),
+        ]),
+        createElement('div', { className: 'lg-field', key: 'turnrail' }, [
+          createElement('div', { className: 'lg-toggle', key: 't' }, [
+            createElement('span', { key: 'l' }, '手机端轮次导航（PC 右侧那根浮轨）'),
+            createElement('button', {
+              key: 's',
+              type: 'button',
+              className: 'lg-switch',
+              'aria-checked': preferences.mobileTurnRail,
+              disabled: busy,
+              onClick: () => void write({ preferences: { mobileTurnRail: !preferences.mobileTurnRail } }),
+            }, createElement('span', null)),
+          ]),
+          createElement('p', { className: 'lg-hint', key: 'h' },
+            'DSH 在手机上其实照样渲染右侧那根轮次浮轨（可跳转、可加载更早轮次、当前轮次跟随），'
+            + '只是被它自己的「窄屏容器查询」藏了起来。开启后本插件用一段只在 ≤1023px 生效的样式把它放出来：'
+            + '贴到对话区右边缘、不再压住正文，官方组件原样复用，不重写、不新建滚动容器。'),
+          createElement('p', { className: 'lg-hint', key: 'h2' },
+            '⚠️ 已知短板（默认关的原因）：每格只有 24×10px，而格间距在官方 JS 里锁死为 10px，'
+            + '用 CSS 撑到 44px 会让相邻格互相覆盖——「点得准」仍不如 PC。建议先开起来看效果，'
+            + '真需要再叠一层透明触控层（拖动选轮次）。打开页面时加 ?lgdiag=1 会多一屏轮次导航诊断。'),
         ]),
         createElement('div', { className: 'lg-row', key: 'doctor' }, [
           createElement('button', {

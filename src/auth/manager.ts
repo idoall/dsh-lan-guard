@@ -177,6 +177,8 @@ export class AuthManager {
       socketWatchdog: true,
       mobileCompat: true,
       mobileScrollFix: true,
+      // Off by default, exactly like the real config default.
+      mobileTurnRail: false,
       auth: options.auth,
       tls: { mode: 'off', caCertFile: null, caKeyFile: null, certFile: null, keyFile: null, allowInsecureLan: false },
       mdns: { enabled: false },

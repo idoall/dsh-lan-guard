@@ -65,6 +65,8 @@ export interface IndexPatchSwitches {
   socketWatchdog(): boolean
   /** Install the narrow-screen scroll correction. */
   mobileScrollFix(): boolean
+  /** Un-hide DSH's own turn-navigation rail on narrow screens. */
+  mobileTurnRail(): boolean
 }
 
 /**
@@ -254,6 +256,121 @@ export function mobileScrollFixScript(): string {
 export function injectMobileScrollFix(html: string): string {
   if (html.includes(MOBILE_SCROLL_MARKER)) return html
   return insertAfterHead(html, mobileScrollFixScript())
+}
+
+/** Marker proving the mobile turn-rail patch was injected. */
+export const MOBILE_TURN_RAIL_MARKER = '/*dsh-lan-guard:mobile-turn-rail*/'
+
+/** Id of the injected `<style>`; also what makes the patch re-runnable and revertible. */
+export const TURN_RAIL_STYLE_ID = 'lg-turn-rail'
+
+/** Id of the opt-in `?lgdiag=1` report panel of this patch. */
+export const TURN_RAIL_DIAG_ID = 'lgtr'
+
+/**
+ * Un-hide DSH's own turn-navigation rail on narrow screens (opt-in, default OFF).
+ *
+ * The rail is NOT missing on a phone — it is rendered, virtualised and wired up,
+ * and exactly one official rule hides it:
+ * `@container (max-width: 900px) { .frame { display: none } }` in
+ * `ui-chat/src/client/chat/TurnNavigator.module.css` (the container is the chat
+ * frame, ~327px wide on a 390px phone). Measured 2026-10-06 against
+ * DSH 0.2.1-alpha.1: the `<nav>` is in the DOM with `display:none` and the
+ * virtualiser renders zero marks until something un-hides it; after a
+ * `display:block` override the rail comes up fully working (marks, active mark,
+ * load-and-jump) with no page errors.
+ *
+ * Why a stylesheet and not a reimplementation: the turn data
+ * (`ui-chat`'s `navigation.items()`) is package-internal, so a plugin cannot
+ * rebuild the rail — but it does not have to. Un-hiding reuses the official
+ * component, its history paging, its active-mark follow and its previews.
+ *
+ * Deliberately conservative, in the same spirit as the scroll fix:
+ *
+ * - the override lives in a `@media (max-width: 1023px)` block, so a desktop
+ *   window is never touched;
+ * - the selector is attribute-based (`nav[aria-label="轮次导航"]` /
+ *   `"Turn navigation"`) plus one structural fallback, because a CSS-module
+ *   class name is hashed; both are display-only except the labelled one, which
+ *   also nudges the rail into the chat frame's right gutter (`right:2px`,
+ *   `width:24px`) so it stops overlapping the message column;
+ * - it SELF-CHECKS: if the rail is found but stays invisible while the override
+ *   is applied, the style is removed again and the page is left byte-identical
+ *   to stock (`mobileTurnRail: "reverted"` in the page's patch ledger);
+ * - it never touches anything but the rail itself: no inline styles on `html`,
+ *   `body` or `#root`, no new buttons, no scroll containers, no listeners.
+ *
+ * Known limit (why this is the "A" cut): the rail's mark pitch is fixed at
+ * 10px in JavaScript (`TURN_SPACING_PX`, `measureElement: () => 10`), so CSS
+ * cannot grow the 24×10px marks into 44px touch targets without making
+ * neighbours overlap. Aiming therefore stays as precise as on the desktop; a
+ * transparent touch layer is the follow-up cut, not this one.
+ *
+ * `?lgdiag=1` adds a small report panel (`#lgtr`) that survives a phone with no
+ * attached debugger.
+ *
+ * @returns one inline `<script>` element.
+ */
+export function mobileTurnRailScript(): string {
+  return `<script>${MOBILE_TURN_RAIL_MARKER}(function(){try{`
+    + 'var S=self,doc=document;'
+    + `var flags=globalThis.${PATCHES_GLOBAL};`
+    + 'if(flags&&flags.mobileTurnRail===true)return;'
+    + `globalThis.${PATCHES_GLOBAL}=Object.assign({},flags,{mobileTurnRail:true});`
+    + 'var diag=false;try{diag=/[?&]lgdiag/.test((S.location&&S.location.search)||"")}catch(e){}'
+    + 'var lines=[];'
+    + 'function log(s){lines.push(s);if(!diag)return;try{var p=doc.getElementById("' + TURN_RAIL_DIAG_ID + '");'
+    + 'if(!p){p=doc.createElement("pre");p.id="' + TURN_RAIL_DIAG_ID + '";p.style.cssText='
+    + '"position:fixed;left:0;bottom:0;right:0;max-height:30%;z-index:2147483646;background:rgba(0,0,0,.9);'
+    + 'color:#7cf;font:10px/1.3 monospace;padding:6px;margin:0;overflow:auto;white-space:pre-wrap;pointer-events:none";'
+    + '(doc.body||doc.documentElement).appendChild(p)}'
+    + 'p.textContent="[lan-guard 轮次导航诊断]"+String.fromCharCode(10)+lines.join(String.fromCharCode(10))}catch(e){}}'
+    // The official rail is a <nav> whose only stable attribute is its aria-label,
+    // which DSH localises; the structural rule below survives a rename.
+    + 'var SEL="nav[aria-label=\\"轮次导航\\"],nav[aria-label=\\"Turn navigation\\"]";'
+    + 'if(!doc.getElementById("' + TURN_RAIL_STYLE_ID + '")){'
+    + 'var st=doc.createElement("style");st.id="' + TURN_RAIL_STYLE_ID + '";'
+    + 'st.appendChild(doc.createTextNode("@media (max-width: 1023px){"+SEL'
+    + '+"{display:block!important;right:2px!important;width:24px!important}"'
+    // Structural fallback: the chat frame is the div holding both the rail slot
+    // and the transcript root; display-only, so a stray match is a no-op.
+    + '+"div:has(>div [data-chat-flow])>div>nav{display:block!important}"+"}"));'
+    + '(doc.head||doc.documentElement).appendChild(st)}'
+    + 'var narrow=false;try{narrow=!!(S.matchMedia&&S.matchMedia("(max-width: 1023px)").matches)}catch(e){}'
+    + 'log("narrow="+narrow);'
+    + 'var tries=0,misses=0,done=false;'
+    + 'function rail(){try{return doc.querySelector(SEL)}catch(e){return null}}'
+    + 'function visible(n){try{var cs=getComputedStyle(n),r=n.getBoundingClientRect();'
+    + 'return cs.display!=="none"&&r.width>1&&r.height>1}catch(e){return false}}'
+    + 'function revert(){try{var s=doc.getElementById("' + TURN_RAIL_STYLE_ID + '");'
+    + 'if(s&&s.parentNode)s.parentNode.removeChild(s)}catch(e){}'
+    + `globalThis.${PATCHES_GLOBAL}=Object.assign({},globalThis.${PATCHES_GLOBAL},{mobileTurnRail:"reverted"});`
+    + '}'
+    + 'function run(){if(done)return;'
+    // Only a narrow page can be judged: on a wide one the official container
+    // query is not what hides anything, so leaving the rail alone is correct.
+    + 'if(!narrow){done=true;return}'
+    + 'var n=rail();'
+    + 'if(!n){if(++tries>8){log("no turn rail yet (style kept for the next session)");done=true}return}'
+    + 'if(visible(n)){var r=n.getBoundingClientRect();'
+    + 'log("turn rail visible "+Math.round(r.width)+"x"+Math.round(r.height)+" at x"+Math.round(r.x));'
+    + 'done=true;return}'
+    + 'if(++misses>=3){log("override lost -> reverted (stock page)");revert();done=true}}'
+    + 'log("style installed");'
+    + 'run();'
+    + 'var t=setInterval(function(){if(done){clearInterval(t);return}run()},1500);'
+    + '}catch(e){}})()</script>'
+}
+
+/**
+ * Insert the narrow-screen turn-rail override.
+ *
+ * @param html - the index body as DSH rendered it.
+ * @returns the body with the override inserted.
+ */
+export function injectMobileTurnRail(html: string): string {
+  if (html.includes(MOBILE_TURN_RAIL_MARKER)) return html
+  return insertAfterHead(html, mobileTurnRailScript())
 }
 
 /**
@@ -465,6 +582,7 @@ export function registerIndexPatches(options: RegisterIndexPatchesOptions): (() 
     let out = html
     if (options.switches.mobileCompat()) out = injectMobileCompat(out)
     if (options.switches.mobileScrollFix()) out = injectMobileScrollFix(out)
+    if (options.switches.mobileTurnRail()) out = injectMobileTurnRail(out)
     if (options.switches.socketWatchdog()) out = injectSocketWatchdog(out)
     if (options.switches.settingsUnlock()) out = injectSettingsUnlock(out)
     return out
