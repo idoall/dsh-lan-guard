@@ -589,7 +589,8 @@ class FakeElement {
     const out: FakeElement[] = []
     const walk = (node: FakeElement): void => {
       for (const child of node.children) {
-        if (selector === 'button' && child.tag === 'button') out.push(child)
+        if ((selector === 'button' || selector === 'button[data-index]') && child.tag === 'button'
+          && (selector !== 'button[data-index]' || child.attrs['data-index'] !== undefined)) out.push(child)
         if (selector.includes('tooltip') && child.attrs.role === 'tooltip') out.push(child)
         walk(child)
       }
@@ -642,6 +643,7 @@ function turnRailEnv(options: TurnRailEnvOptions = {}) {
     const marksBox = new FakeElement('div')
     for (const label of options.marks ?? ['跳转到第 1 轮', '跳转到第 2 轮', '跳转到第 3 轮']) {
       const mark = new FakeElement('button')
+      mark.setAttribute('data-index', String(marks.length))
       mark.setAttribute('aria-label', label)
       mark.closestTarget = nav
       marks.push(mark)
@@ -896,6 +898,9 @@ describe('injectMobileTurnRail', () => {
       vi.advanceTimersByTime(60)
       const parts = env.cardParts()
       expect(parts?.card.style.display).toBe('block')
+      // The card stays in the official rail's containing block, not a
+      // body-level fixed layer whose viewport coordinates WebKit may reinterpret.
+      expect(parts?.card.parentNode).toBe(env.nav)
       // The mobile layer sends the same pointermove signal the desktop hover
       // handler consumes; it must NOT focus the right-edge button (iOS Chrome
       // can scroll a focused button into view, shifting the visual viewport).

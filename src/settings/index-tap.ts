@@ -309,7 +309,8 @@ export function mobileTurnRailTouchScript(): string {
   var nav=null,mark=null,armed=false,armY=0,timer=0,lastY=0;
   function one(sel,root){try{return (root||doc).querySelector(sel)}catch(e){return null}}
   function navOf(node){try{return node&&node.closest?node.closest(SEL):null}catch(e){return null}}
-  function marks(){return nav?nav.querySelectorAll("button"):[]}
+  // Official TurnNavigator marks carry data-index; card controls do not.
+  function marks(){return nav?nav.querySelectorAll("button[data-index]"):[]}
   function el(tag,style,text){
     var node=doc.createElement(tag);
     if(style)node.style.cssText=style;
@@ -321,8 +322,12 @@ export function mobileTurnRailTouchScript(): string {
     +"color:var(--dsw-alias-label-primary,#111);pointer-events:auto;padding:0 10px";
   function build(){
     if(card)return;
-    card=el("div",'position:fixed;left:12px;right:44px;top:76px;z-index:2147483645;display:none;'
-      +"box-sizing:border-box;padding:10px 12px 12px;border-radius:14px;pointer-events:none;"
+    // Anchor in the official rail, not document.body: iOS Chrome/WebKit can
+    // choose a surprising coordinate space for a body-level fixed layer after
+    // an edge gesture. The rail itself is already on-screen, so right:100% is
+    // a stable leftward anchor. Width and top are clamped in placeCard().
+    card=el("div",'position:absolute;right:calc(100% + 8px);top:0;min-width:0;z-index:10;display:none;'
+      +"box-sizing:border-box;max-height:calc(100vh - 24px);overflow-y:auto;padding:10px 12px 12px;border-radius:14px;pointer-events:none;"
       +"background:var(--dsw-alias-bg-layer-1,#fff);color:var(--dsw-alias-label-primary,#111);"
       +"box-shadow:var(--dsw-elevation-panel,0 10px 30px rgba(0,0,0,.22));"
       +"border:.5px solid var(--dsw-alias-border-l2,rgba(0,0,0,.14));"
@@ -339,11 +344,13 @@ export function mobileTurnRailTouchScript(): string {
     var row=el("div","display:flex;gap:8px;margin-top:8px");
     prevEl=el("button",BTN+"flex:none;min-width:44px","◀");
     nextEl=el("button",BTN+"flex:none;min-width:44px","▶");
-    jumpEl=el("button",BTN+"flex:1;background:var(--dsw-alias-state-business-primary,#3964fe);color:#fff");
+    jumpEl=el("button",BTN+"flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:var(--dsw-alias-state-business-primary,#3964fe);color:#fff");
     prevEl.type="button";nextEl.type="button";jumpEl.type="button";
     row.appendChild(prevEl);row.appendChild(jumpEl);row.appendChild(nextEl);
     card.appendChild(head);card.appendChild(bodyEl);card.appendChild(row);
-    (doc.body||doc.documentElement).appendChild(card);
+    // nav is the on-screen official rail. Keeping the card in this local
+    // containing block avoids iOS Chrome's body-level fixed positioning path.
+    if(nav)nav.appendChild(card);else (doc.body||doc.documentElement).appendChild(card);
     closeEl.addEventListener("click",function(ev){ev.stopPropagation();hide()});
     prevEl.addEventListener("click",function(ev){ev.stopPropagation();step(-1)});
     nextEl.addEventListener("click",function(ev){ev.stopPropagation();step(1)});
@@ -360,6 +367,33 @@ export function mobileTurnRailTouchScript(): string {
   }
   /** The official bubble is what we read; it must not also float under the finger. */
   function own(){try{if(nav)nav.setAttribute("data-lg-turn-card","1")}catch(e){}}
+  /**
+   * Place inside the visible rail's local coordinate system, then clamp vertically
+   * using the card's actual rect. This is intentionally independent of body-level
+   * fixed positioning / visual viewport offsets, which differ in iOS Chrome.
+   */
+  function placeCard(){
+    if(!card||!nav)return;
+    var nr=nav.getBoundingClientRect(),vw=S.innerWidth||320,vh=S.innerHeight||568,safe=12;
+    // right:calc(100% + 8px) means the card's right edge sits 8px left of
+    // the rail. Limit its width so its left edge still has the safe margin.
+    var width=Math.min(320,Math.max(0,nr.left-safe-8));
+    card.style.width=width+"px";
+    var target=lastY<vh*0.45?Math.round(vh*0.45):76;
+    card.style.top=Math.round(target-nr.top)+"px";
+    card.style.transform="translate3d(0,0,0)";
+    try{requestAnimationFrame(fitCard)}catch(e){fitCard()}
+  }
+  function fitCard(){
+    if(!card||card.style.display==="none"||!nav)return;
+    var vh=S.innerHeight||568,safe=12,r=card.getBoundingClientRect(),dy=0;
+    if(r.top<safe)dy=safe-r.top;
+    else if(r.bottom>vh-safe)dy=vh-safe-r.bottom;
+    if(dy){
+      var top=Number.parseFloat(card.style.top)||0;
+      card.style.top=Math.round(top+dy)+"px";
+    }
+  }
   function paint(){
     if(!card||!mark)return;
     var label="";
@@ -374,8 +408,8 @@ export function mobileTurnRailTouchScript(): string {
     bodyEl.textContent=reply;
     bodyEl.style.display=reply?"block":"none";
     jumpEl.textContent=label||"跳转";
-    var vh=S.innerHeight||0;card.style.top=(lastY<vh*0.45?Math.round(vh*0.45):76)+"px";
     card.style.display="block";
+    placeCard();
     own();
   }
   /**
@@ -440,6 +474,9 @@ export function mobileTurnRailTouchScript(): string {
     try{
       if(card&&card.style.display==="block"&&!card.contains(ev.target))hide();
       var node=ev.target;
+      // Card controls live inside nav for stable iOS positioning; they are not
+      // rail marks and must keep their ordinary click behaviour.
+      if(card&&card.contains(node))return;
       if(!node||node.tagName!=="BUTTON")return;
       var found=navOf(node);
       if(!found)return;
