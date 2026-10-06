@@ -14,16 +14,21 @@ import {
   MOBILE_COMPAT_MARKER,
   MOBILE_META_MARKER,
   MOBILE_SCROLL_MARKER,
+  MOBILE_TURN_RAIL_MARKER,
   SOCKET_WATCHDOG_MARKER,
   TRANSPORT_GLOBAL,
+  TURN_RAIL_DIAG_ID,
+  TURN_RAIL_STYLE_ID,
   UNLOCK_MARKER,
   injectMobileCompat,
   injectMobileScrollFix,
+  injectMobileTurnRail,
   injectSettingsUnlock,
   injectSocketWatchdog,
   mobileCompatScript,
   mobileMetaMarkup,
   mobileScrollFixScript,
+  mobileTurnRailScript,
   registerIndexPatches,
   settingsUnlockScript,
   socketWatchdogScript,
@@ -470,6 +475,7 @@ describe('injectMobileScrollFix', () => {
         mobileCompat: () => false,
         socketWatchdog: () => false,
         mobileScrollFix: () => on,
+        mobileTurnRail: () => false,
       },
     })
     expect(transform(INDEX)).toBe(INDEX)
@@ -478,12 +484,220 @@ describe('injectMobileScrollFix', () => {
   })
 })
 
+/** One element in the fake DOM below. */
+class FakeElement {
+  readonly style = { cssText: '' }
+  readonly children: FakeElement[] = []
+  parentNode: FakeElement | null = null
+  textContent = ''
+  display = 'block'
+  width = 28
+  height = 52
+
+  constructor(readonly tag: string, readonly id = '') {}
+
+  appendChild(child: FakeElement): FakeElement {
+    child.parentNode = this
+    this.children.push(child)
+    return child
+  }
+
+  removeChild(child: FakeElement): void {
+    const at = this.children.indexOf(child)
+    if (at >= 0) this.children.splice(at, 1)
+    child.parentNode = null
+  }
+
+  getBoundingClientRect(): { x: number; y: number; width: number; height: number } {
+    return { x: 343, y: 355, width: this.width, height: this.height }
+  }
+}
+
+/**
+ * A fake page the turn-rail script can be installed into.
+ *
+ * `nav` is what `document.querySelector(selector)` returns: the real script
+ * looks for `nav[aria-label=…]`, so `null` models "no rail mounted yet" (the
+ * chat has fewer than two turns) and a `display:none` element models "the rail
+ * is there but the override did not win" — the state that must revert.
+ */
+function turnRailEnv(options: { matchMedia?: boolean; nav?: 'absent' | 'hidden' | 'visible' } = {}) {
+  const created: FakeElement[] = []
+  const head = new FakeElement('head')
+  const nav = options.nav === undefined || options.nav === 'absent'
+    ? null
+    : new FakeElement('nav', '')
+  if (nav !== null) {
+    nav.display = options.nav === 'hidden' ? 'none' : 'block'
+    if (options.nav === 'hidden') { nav.width = 0; nav.height = 0 }
+  }
+  const doc = {
+    head,
+    body: new FakeElement('body'),
+    documentElement: new FakeElement('html'),
+    createElement: (tag: string) => {
+      const element = new FakeElement(tag)
+      created.push(element)
+      return element
+    },
+    createTextNode: (text: string) => {
+      const node = new FakeElement('#text')
+      node.textContent = text
+      return node
+    },
+    getElementById: (id: string) => created.find(element => element.id === id) ?? null,
+    querySelector: () => nav,
+  }
+  const self = { matchMedia: () => ({ matches: options.matchMedia ?? true }) }
+  const patches: Record<string, unknown> = {}
+  return {
+    doc,
+    self,
+    patches,
+    head,
+    created,
+    nav,
+    // Only styles still attached to the document count: the revert path
+    // detaches the element instead of un-creating it.
+    styles: () => created.filter(element => element.tag === 'style' && element.parentNode !== null),
+    ledger: () => (patches.__DSH_LAN_GUARD__ ?? {}) as Record<string, unknown>,
+  }
+}
+
+/**
+ * Run the turn-rail script against a fake page.
+ *
+ * @returns the page's patch ledger, read AFTER the run: the script replaces the
+ * `__DSH_LAN_GUARD__` object on every transition (installed → reverted), so a
+ * captured reference would go stale.
+ */
+function installTurnRail(env: ReturnType<typeof turnRailEnv>): Record<string, unknown> {
+  const body = scriptBody(mobileTurnRailScript())
+  const factory = new Function(
+    'self', 'globalThis', 'document', 'console', 'getComputedStyle', 'setInterval', 'clearInterval',
+    body,
+  )
+  factory(
+    env.self, env.patches, env.doc, console,
+    (element: FakeElement) => ({ display: element.display }),
+    globalThis.setInterval, globalThis.clearInterval,
+  )
+  return env.ledger()
+}
+
+describe('injectMobileTurnRail', () => {
+  const INDEX = '<!doctype html><html><head></head><body>x</body></html>'
+
+  it('injects one scoped, revertible override of DSH’s own container query', () => {
+    const out = injectMobileTurnRail(INDEX)
+    expect(out).toContain(MOBILE_TURN_RAIL_MARKER)
+    const body = scriptBody(mobileTurnRailScript())
+    expect(body).not.toContain('</script>')
+    // Narrow screens only: a desktop window must keep DSH's own behaviour.
+    expect(body).toContain('max-width: 1023px')
+    // DSH hides the rail with `@container (max-width: 900px) { .frame{display:none} }`,
+    // so the override has to out-specify a class AND stay display-only.
+    expect(body).toContain('轮次导航')
+    expect(body).toContain('Turn navigation')
+    expect(body).toContain('display:block!important;right:2px!important;width:24px!important')
+    // Structural fallback for a localised/renamed label; display-only.
+    expect(body).toContain('div:has(>div [data-chat-flow])>div>nav{display:block!important}')
+    // Self-check and full revert, like every other page patch here.
+    expect(body).toContain('getComputedStyle')
+    expect(body).toContain('removeChild')
+    expect(body).toContain('reverted')
+    expect(body).toContain(TURN_RAIL_STYLE_ID)
+    // Diagnostics stay opt-in and must not collide with the scroll fix panel.
+    expect(body).toContain('lgdiag')
+    expect(body).toContain(TURN_RAIL_DIAG_ID)
+    expect(TURN_RAIL_DIAG_ID).not.toBe('lgsc')
+    // It must stay a stylesheet: no new buttons, no listeners, no scroll containers.
+    expect(body).not.toContain('createElement("button")')
+    expect(body).not.toContain('addEventListener')
+    expect(body).not.toContain('overflow-y","auto')
+    // Idempotent.
+    expect(injectMobileTurnRail(out)).toBe(out)
+  })
+
+  it('is applied by the registrar only while its switch is on', () => {
+    let on = false
+    let transform: (html: string) => string = () => INDEX
+    registerIndexPatches({
+      webServer: { tapIndex: (fn: (html: string) => string) => { transform = fn; return () => {} } },
+      switches: {
+        settingsUnlock: () => false,
+        mobileCompat: () => false,
+        socketWatchdog: () => false,
+        mobileScrollFix: () => false,
+        mobileTurnRail: () => on,
+      },
+    })
+    expect(transform(INDEX)).toBe(INDEX)
+    on = true
+    expect(transform(INDEX)).toContain(MOBILE_TURN_RAIL_MARKER)
+  })
+
+  it('installs the style and records the patch when the rail comes up', () => {
+    const env = turnRailEnv({ nav: 'visible' })
+    const patches = installTurnRail(env)
+    expect(env.styles().map(style => style.id)).toEqual([TURN_RAIL_STYLE_ID])
+    expect(env.head.children).toHaveLength(1)
+    expect(patches.mobileTurnRail).toBe(true)
+  })
+
+  it('keeps the style when no rail is mounted yet, and reports it', () => {
+    vi.useFakeTimers()
+    try {
+      const env = turnRailEnv({ nav: 'absent' })
+      const patches = installTurnRail(env)
+      vi.advanceTimersByTime(1500 * 12)
+      // A session with fewer than two turns has no rail at all; the style must
+      // survive for the next session instead of being thrown away.
+      expect(env.styles()).toHaveLength(1)
+      expect(patches.mobileTurnRail).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('reverts completely when the override does not win', () => {
+    vi.useFakeTimers()
+    try {
+      const env = turnRailEnv({ nav: 'hidden' })
+      installTurnRail(env)
+      expect(env.styles()).toHaveLength(1)
+      vi.advanceTimersByTime(1500 * 3)
+      expect(env.styles()).toHaveLength(0)
+      expect(env.head.children).toHaveLength(0)
+      expect(env.ledger().mobileTurnRail).toBe('reverted')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does nothing on a wide page, where DSH’s own rule is not what hides it', () => {
+    vi.useFakeTimers()
+    try {
+      const env = turnRailEnv({ matchMedia: false, nav: 'hidden' })
+      const patches = installTurnRail(env)
+      vi.advanceTimersByTime(1500 * 12)
+      expect(env.styles()).toHaveLength(1)
+      expect(patches.mobileTurnRail).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
 describe('registerIndexPatches', () => {
   const INDEX = '<!doctype html><html><head><base href="./"></head><body>app</body></html>'
 
   it('degrades to a warning when the host exposes no tapIndex', () => {
     const { logger, warnings } = recordingLogger()
-    const switches = { settingsUnlock: () => true, mobileCompat: () => true, socketWatchdog: () => true, mobileScrollFix: () => true }
+    const switches = {
+      settingsUnlock: () => true, mobileCompat: () => true, socketWatchdog: () => true,
+      mobileScrollFix: () => true, mobileTurnRail: () => false,
+    }
     expect(registerIndexPatches({ webServer: {}, switches, logger })).toBeUndefined()
     expect(registerIndexPatches({ webServer: undefined, switches, logger })).toBeUndefined()
     expect(warnings).toHaveLength(2)
@@ -502,6 +716,7 @@ describe('registerIndexPatches', () => {
         mobileCompat: () => mobileCompat,
         socketWatchdog: () => socketWatchdog,
         mobileScrollFix: () => false,
+        mobileTurnRail: () => false,
       },
     })
 
@@ -526,7 +741,10 @@ describe('registerIndexPatches', () => {
     const webServer = { tapIndex: () => () => { disposed = true } }
     const dispose = registerIndexPatches({
       webServer,
-      switches: { settingsUnlock: () => true, mobileCompat: () => true, socketWatchdog: () => true, mobileScrollFix: () => true },
+      switches: {
+        settingsUnlock: () => true, mobileCompat: () => true, socketWatchdog: () => true,
+        mobileScrollFix: () => true, mobileTurnRail: () => false,
+      },
     })
     dispose?.()
     expect(disposed).toBe(true)

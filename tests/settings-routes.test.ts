@@ -42,6 +42,7 @@ function configWith(overrides: Partial<LanGuardConfigShape['auth']> = {}): LanGu
     socketWatchdog: true,
     mobileCompat: true,
     mobileScrollFix: true,
+    mobileTurnRail: false,
     auth: {
       enabled: true,
       mode: 'token_and_password',
@@ -230,6 +231,7 @@ describe('snapshot', () => {
       socketWatchdog: true,
       mobileCompat: true,
       mobileScrollFix: true,
+      mobileTurnRail: false,
       mode: 'token_and_password',
       adminPolicy: 'local_only',
       adminProtection: true,
@@ -760,10 +762,11 @@ describe('mobile resilience surface (2026-09-28)', () => {
     expect(body.preferences.socketWatchdog).toBe(true)
     expect(body.preferences.mobileCompat).toBe(true)
     expect(body.preferences.mobileScrollFix).toBe(true)
+    expect(body.preferences.mobileTurnRail).toBe(false)
   })
 
   it('writes each switch through the settings service', async () => {
-    for (const key of ['answerHeartbeat', 'socketWatchdog', 'mobileCompat', 'mobileScrollFix'] as const) {
+    for (const key of ['answerHeartbeat', 'socketWatchdog', 'mobileCompat', 'mobileScrollFix', 'mobileTurnRail'] as const) {
       const harnessed = await harness()
       const response = await post(harnessed.port, { preferences: { [key]: false } })
       expect(response.status).toBe(200)

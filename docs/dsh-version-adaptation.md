@@ -1,7 +1,8 @@
 # DSH 版本适配 SOP
 
 DSH 发新版本（`rc.3` / 正式版 / `0.3.x`）时按这份流程走一遍。
-2026-10-01 首次以 `0.2.0-rc.1 → 0.2.0-rc.2` 走通全流程，本篇即那次的沉淀。
+2026-10-01 以 `0.2.0-rc.1 → 0.2.0-rc.2` 首次走通全流程；2026-10-06 又走了 `0.2.0-rc.2 → 0.2.1-alpha.1`
+（这一版多出了"vendor 连带升级"这一步，见第 4 步的 ⚠️）。
 
 > 结论先行：`rc.2` 那次是**仅声明、零代码**。这很正常 —— DSH 在发布候选之间通常只动版本号，
 > 真正的适配成本在"证明它没变"，而不在改代码。
@@ -42,9 +43,14 @@ done
 **判读**：
 
 - 只列出 `package.json` ⇒ 版本号改动，接口面没变（rc.2 就是这种情况，可以直接跳到第 4 步的验证）。
-- 列出 `src/**` ⇒ 逐个读，重点确认上表那几个符号的签名。rc.2 唯一一处源码改动是
-  `ui-renderer/src/client/scoped-slots.tsx` 把 `nextAncestors` 提前到 `useMemo`（修 React hooks 顺序），
-  与本插件无关 —— 但**必须读一眼才能下这个结论**，不能因为文件名眼熟就跳过。
+- 列出 `src/**` ⇒ 逐个读，重点确认上表那几个符号的签名。**必须读一眼才能下结论**，不能因为文件名眼熟就跳过。
+
+两个已经出现过的"读了才知道无关"的例子：
+
+| 版本 | 源码改动 | 为什么与本插件无关 |
+| --- | --- | --- |
+| `0.2.0-rc.2` | `ui-renderer/src/client/scoped-slots.tsx` 把 `nextAncestors` 提前到 `useMemo`（修 React hooks 顺序） | 本插件不注册 slot 组件 |
+| `0.2.1-alpha.1` | `ui-layout` 把 frame 的网格行从 `100%` 改成 `minmax(0,1fr) auto`、新增 `shell.bottom` 槽与 `.bottomRow`；`ui-renderer` 删掉 `invariant.ts` | 本插件只占 `settings.section`，不渲染 `shell.bottom`；全仓只有 `experimental/inspector` 用它 ⇒ 实测该行为 `[0,844,390,0]`，不占高度 |
 
 ## 第 3 步：符号存在性核对
 
@@ -59,14 +65,25 @@ grep -rn "requestRejection\|authenticatedUrl" packages/client/connection/src/*.t
 ## 第 4 步：升级宿主依赖并全量验证（本仓库）
 
 ```sh
-# 先把 package.json 里 devDependencies 的两个宿主包升到新版本
+# 先把 package.json 里 devDependencies 的宿主包升到新版本
 pnpm install
-pnpm run test      # typecheck + 359 用例
+pnpm run test      # typecheck + 全部用例
 pnpm run verify    # 再加 build + npm pack --dry-run
 ```
 
 **为什么必须升 devDependency 再跑**：只有用新版宿主的真实类型跑过，才能证明"接口面没变"，
 否则只是拿着旧类型自说自话。
+
+⚠️ **`0.2.1-alpha.1` 起，要升的不止那两个宿主包。** 新的
+`@deepseek-ai/dsh-host-webserver` / `dsh-client-connection` 把 vendor 版本写进了
+自己的 `peerDependencies`：`@deepseek-ai/cordis: ~4.0.5-alpha.1`、
+`@deepseek-ai/schemastery: ~3.18.5-alpha.1`（本次 vendor 同步升到 `cordis 4.0.5-alpha.1`、
+`schemastery 3.18.5-alpha.1`）。只升两个宿主包时 pnpm 会报
+`unmet peer @deepseek-ai/cordis@~4.0.5-alpha.1: found 4.0.4`，而且 —— 更关键 ——
+**`^4.0.4` 这类范围默认不含预发布版本**，`4.0.5-alpha.1` 落在它外面，所以必须显式钉到
+`4.0.5-alpha.1`，类型环境才与运行环境一致。本插件的 `peerDependencies` 保持原样即可：
+门禁只比对 `@deepseek-ai/dsh*`（见 [plugin-compatibility.ts](https://github.com/deepseek-ai/deepseek-harness) 的
+`evaluatePluginCompatibility`，它 `continue` 掉所有非 `dsh*` 名字），cordis/schemastery 的 peer 不参与丢弃判定。
 
 ## 第 5 步：实测移动端（不依赖真机）
 
@@ -76,11 +93,16 @@ pnpm run verify    # 再加 build + npm pack --dry-run
 `position:absolute` + 内联 `width:100vw`（滑动/隐藏下移到内层 `[data-dockkit-host="dock"]`）。
 这类改动**不会让任何用例变红**，只在窄屏几何上表现。判据有变化就记下来，例如：
 
-| 判据 | `0.2.0-rc.1` | `0.2.0-rc.2` |
-| --- | --- | --- |
-| 滚动层内部被裁层数 | 1（`EvIC1a_frame`） | **0** |
-| 可滚范围 | 336px | **92343px** |
-| `mobileScrollFix` 行为 | 动手补偿 | **空转**（每轮自检后整体撤销） |
+| 判据 | `0.2.0-rc.1` | `0.2.0-rc.2` | `0.2.1-alpha.1` |
+| --- | --- | --- | --- |
+| 滚动层内部被裁层数 | 1（`EvIC1a_frame`） | **0** | **0** |
+| 可滚范围 | 336px | **92343px** | 5084px（该会话本身较短） |
+| `mobileScrollFix` 行为 | 动手补偿 | **空转**（每轮自检后整体撤销） | **空转**（`?lgdiag=1`：`clipping=0` → `ineffective -> reverted (stock page)`） |
+| 右侧栏「展开」后可见面积 | — | 100% | **100%**（3080/3081 逐项一致） |
+
+`0.2.1-alpha.1` 上还顺手加了第 5 条判据（可选）：把 `mobileTurnRail` 的注入脚本原样打进页面，
+浮轨应从 `display:none` 变 `block`、rect `[357,355,24,52]`、5 格、间距 10px，且**其余 nav 不受影响**。
+详见 [mobile-regression.md](mobile-regression.md) 第五节。
 
 ## 第 6 步：落声明、归档、发版
 

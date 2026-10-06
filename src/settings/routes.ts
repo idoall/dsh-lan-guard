@@ -311,6 +311,7 @@ export function registerManagementRoutes(options: ManagementRoutesOptions): () =
         socketWatchdog: options.switches.socketWatchdog(),
         mobileCompat: options.switches.mobileCompat(),
         mobileScrollFix: options.switches.mobileScrollFix(),
+        mobileTurnRail: options.switches.mobileTurnRail(),
         mode: options.switches.mode(),
         adminPolicy: options.switches.adminPolicy(),
         adminProtection: options.switches.adminProtection(),
@@ -738,7 +739,8 @@ export function registerManagementRoutes(options: ManagementRoutesOptions): () =
 
   /**
    * Index patches: the remote settings-page unlock, the mobile compatibility
-   * shims and the client-side socket watchdog.
+   * shims, the narrow-screen scroll correction, the narrow-screen turn-rail
+   * override and the client-side socket watchdog.
    *
    * DSH disables its OFFICIAL settings surface for any page whose address bar
    * is not loopback, which is every device arriving through this gateway; the
@@ -753,6 +755,7 @@ export function registerManagementRoutes(options: ManagementRoutesOptions): () =
       settingsUnlock: () => options.switches.settingsUnlock(),
       mobileCompat: () => options.switches.mobileCompat(),
       mobileScrollFix: () => options.switches.mobileScrollFix(),
+      mobileTurnRail: () => options.switches.mobileTurnRail(),
       socketWatchdog: () => options.switches.socketWatchdog(),
     },
     logger,

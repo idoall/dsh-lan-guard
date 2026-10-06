@@ -56,6 +56,7 @@ function configWith(
     socketWatchdog: true,
     mobileCompat: true,
     mobileScrollFix: true,
+    mobileTurnRail: false,
     auth: {
       enabled: true,
       mode: 'token_and_password',

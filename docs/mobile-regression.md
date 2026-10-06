@@ -75,6 +75,7 @@ UA: Mozilla/5.0 (iPhone; CPU iPhone OS 27_0 like Mac OS X) ... Version/27.0 Mobi
 | 2 | **会话可滚范围** | `[data-conversation-scroll]` 的 `scrollHeight - clientHeight` | 远大于 0（rc.2 长会话实测 **17433px**） |
 | 3 | **被裁层数** | 滚动层内部所有 `overflow-y` 为 `hidden`/`clip` 且内容溢出的 `div` 个数 | **0** |
 | 4 | **`?lgdiag=1` 尾部** | 诊断面板末几行 | 全是 `official scroll layer works` 或 `ineffective -> reverted (stock page)`；出现 `clip grow` 才说明补偿真的动手了 |
+| 5 | **（可选）轮次浮轨** | 打开 `mobileTurnRail` 后，`nav[aria-label="轮次导航"|"Turn navigation"]` 的 `display` 与 rect | `display:block`、宽 24、右边缘 = 对话框右缘 − 2px、格数 ≥2、间距 10px、恰好 1 格 `aria-current`；**其余 nav 的 `display` 不变** |
 
 判据 1 的失败形态很好认：**按钮点了会消失（`data-sidebar-right-open` 出现、`expandButtonGone = true`），
 但面板可见面积 0%** —— 说明状态切换成功、几何错位，是布局问题不是事件问题。此时看
@@ -82,7 +83,27 @@ UA: Mozilla/5.0 (iPhone; CPU iPhone OS 27_0 like Mac OS X) ... Version/27.0 Mobi
 面板靠内联 `width:100vw` + `position:absolute; top:0; bottom:0; right:0` 铺满。
 **只要这个列的高度塌成 0 或它的 y 被推到视口外，面板就必然看不见**（外层 `.frame` 还有 `overflow:hidden` 会把它裁掉）。
 
-## 五、实测基线（DSH 0.2.0-rc.2 / dsh-lan-guard 0.4.6，2026-10-01）
+## 五、实测基线（DSH 0.2.1-alpha.1 / dsh-lan-guard 0.5.0，2026-10-06）
+
+| 判据 | 3080 直连 | 3081 代理 |
+| --- | --- | --- |
+| 右侧栏可见面积 | **100%** | **100%** |
+| 屏幕正中命中面板内 | ✓ | ✓ |
+| `[data-rightbar-col]` rect | `[390,0,0,844]`（宽 0、高满、贴右缘） | 同左 |
+| 会话可滚范围 | **5084px**（本条会话较短） | 同左 |
+| 被裁层数 | **0** | — |
+| `?lgdiag=1` 尾部 | — | `clipping=0` → `ineffective -> reverted (stock page)` |
+| `html` / `#root` 上的内联样式 | 只有 `color-scheme` ⇒ 补偿**零介入** | — |
+| 新增的 `[data-shell-bottom]` 行 | rect `[0,844,390,0]`（0.2.1 新增的全宽底栏槽，无人渲染 ⇒ 不占高度） | 同左 |
+| JS 报错 | 0 | 0 |
+
+判据 5 同时拿到（0.2.1-alpha.1 / 390×844，把 `0.5.0` 的注入脚本原样打进页面）：
+浮轨 `display:none` → `block`、rect `[357,355,24,52]`、5 格、间距 10px、1 格 `aria-current`；
+对话列右缘 351、浮轨左缘 357 ⇒ **不再压住正文**；`Global panels` / `Session hierarchy` 两个 nav 的
+`display` 保持 `flex` 不变；0 报错。反向自检也实测过：用一条更高优先级的 `display:none !important`
+模拟"上游把隐藏规则改强"，脚本在 **3 秒内**把注入的 `<style>` 整体摘掉并记 `mobileTurnRail:"reverted"`。
+
+## 五之二、历史基线（DSH 0.2.0-rc.2 / dsh-lan-guard 0.4.6，2026-10-01）
 
 | 判据 | 3080 直连 | 3081 代理 |
 | --- | --- | --- |
@@ -104,10 +125,11 @@ UA: Mozilla/5.0 (iPhone; CPU iPhone OS 27_0 like Mac OS X) ... Version/27.0 Mobi
 # 1) 确认在跑、且装的是预期版本
 lsof -nP -iTCP -sTCP:LISTEN | grep -E ':3080|:3081'
 grep '"version"' ~/.dsh/profiles/web/node_modules/dsh-lan-guard/package.json
+# 期望 0.5.0（或更新）；0.4.6 及更早没有 mobileTurnRail 开关
 
 # 2) 注入与开关（回环免锁）
 curl -sk https://127.0.0.1:3081/ | grep -o 'dsh-lan-guard:[a-z-]*' | sort -u
-curl -sk https://127.0.0.1:3081/plugins/dsh-lan-guard/config | python3 -m json.tool | grep -E 'mobileScrollFix|settingsUnlock'
+curl -sk https://127.0.0.1:3081/plugins/dsh-lan-guard/config | python3 -m json.tool | grep -E 'mobileScrollFix|mobileTurnRail|settingsUnlock'
 
 # 3) 按第二、三、四节用浏览器（headless 或 DevTools 设备模拟）分别跑 3080 与 3081，抄下四个判据
 
@@ -119,7 +141,7 @@ curl -sk https://127.0.0.1:3081/plugins/dsh-lan-guard/config | python3 -m json.t
 | 现象 | 含义 | 下一步 |
 | --- | --- | --- |
 | 3080 就不正常 | 与代理无关，是官方或别的插件 | 用干净的 0.2.0-rc.2 复现，参照 [upstream-dsh-0.2.0-rc.1-session-scroll.md](upstream-dsh-0.2.0-rc.1-session-scroll.md) 的写法整理证据 |
-| 3080 正常、3081 不正常 | 代理或 index 注入引入的 | 逐个关掉四个注入开关复测（`settingsUnlock` / `mobileCompat` / `mobileScrollFix` / `socketWatchdog`） |
+| 3080 正常、3081 不正常 | 代理或 index 注入引入的 | 逐个关掉五个注入开关复测（`settingsUnlock` / `mobileCompat` / `mobileScrollFix` / `mobileTurnRail` / `socketWatchdog`） |
 | 抽屉按钮消失但可见面积 0% | 状态切换成功、几何错位 | 量 `[data-rightbar-col]` 的 rect 与 `display`（应为 `grid`，高满、贴右缘） |
 | 判据 4 出现 `clip grow layers=N` | 补偿真的动手了 ⇒ 官方裁剪回归又回来了 | 记下 N 与 `A->B`，对照 rc.1 的 336px 基线 |
 | `lgdiag` 无面板 | 注入没生效 | 查第 2 步的 curl 输出 |

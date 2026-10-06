@@ -6,7 +6,7 @@
   <a href="https://github.com/idoall/dsh-lan-guard/actions/workflows/ci.yml"><img src="https://github.com/idoall/dsh-lan-guard/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://www.npmjs.com/package/dsh-lan-guard"><img src="https://img.shields.io/npm/v/dsh-lan-guard?label=npm&color=CB3837" alt="npm 版本"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-0F172A" alt="MIT"></a>
-  <img src="https://img.shields.io/badge/DSH-0.2.0--rc.2-4B6BFB" alt="DSH 0.2.0-rc.2">
+  <img src="https://img.shields.io/badge/DSH-0.2.1--alpha.1-4B6BFB" alt="DSH 0.2.1-alpha.1">
 </p>
 
 <p align="center"><a href="README.md">English</a> | 中文</p>
@@ -49,7 +49,7 @@ DSH 的 Web 界面只监听 `127.0.0.1`，而官方明确拒绝绑定 `0.0.0.0`�
 
 - 带 Web profile 的 DeepSeek Harness
 - Node.js 20 或更新
-- 已验证的 DeepSeek Harness：`0.2.0-rc.2`
+- 已验证的 DeepSeek Harness：`0.2.1-alpha.1`
 
 从 npm 安装：
 
@@ -82,7 +82,7 @@ dsh plugin --profile web add "link:$(pwd)"
 
 ## 设置
 
-设置项集中在 **设置 → 局域网访问** 的四个 tab 里。非敏感开关（`enabled`、`listenPort`、`listenHost`、`networkInterface`、`settingsUnlock`、`answerHeartbeat`、`socketWatchdog`、`mobileCompat`、`auth.mode`、`auth.adminPolicy`、`auth.adminProtection`、`auth.allowLoopback`、`auth.requirePairing`、`auth.requireApproval`）可直接改；`listenPort` 与 `listenHost` 需重启 dsh 生效；`settingsUnlock` / `socketWatchdog` / `mobileCompat` / `mobileScrollFix` 刷新页面即可生效，`answerHeartbeat` 立即对**已打开**的连接生效；`dataDir` 与 `tls.*` 属启动期字段，需在 profile patch 里改。
+设置项集中在 **设置 → 局域网访问** 的四个 tab 里。非敏感开关（`enabled`、`listenPort`、`listenHost`、`networkInterface`、`settingsUnlock`、`answerHeartbeat`、`socketWatchdog`、`mobileCompat`、`mobileScrollFix`、`mobileTurnRail`、`auth.mode`、`auth.adminPolicy`、`auth.adminProtection`、`auth.allowLoopback`、`auth.requirePairing`、`auth.requireApproval`）可直接改；`listenPort` 与 `listenHost` 需重启 dsh 生效；`settingsUnlock` / `socketWatchdog` / `mobileCompat` / `mobileScrollFix` / `mobileTurnRail` 刷新页面即可生效，`answerHeartbeat` 立即对**已打开**的连接生效；`dataDir` 与 `tls.*` 属启动期字段，需在 profile patch 里改。
 
 | 设置项 | 默认 | 作用 |
 | --- | --- | --- |
@@ -100,6 +100,7 @@ dsh plugin --profile web add "link:$(pwd)"
 | 断线看门狗 | **开** | 页面补丁：卡在「连接中」超过 8 秒的 WebSocket 会被关掉；从后台回来 10 秒后仍一条都没连上时自动重载一次（每标签最多连续 3 次，冷却 20 秒起）。只对真的连不上的页面生效。刷新页面生效。 |
 | 移动端兼容垫片 | **开** | 页面补丁：补 `AbortSignal.any`/`AbortSignal.timeout`/`Promise.withResolvers`/`Iterator` 与移动端 meta。缺这些 API 时 DSH 客户端在会话流里抛错，界面只会一直显示「载入历史…」且没有报错。现代浏览器上这些分支不生效。刷新页面生效。 |
 | 手机滚动矫正（窄屏） | **开** | 手机端 DSH 外壳在窄屏下把对话列裁在 `overflow:hidden` 的层里（实测 844/1688），整页也不可滚 → 内容可见但**滑不动**。开启后只在「窄屏 + 移动端 + 整页不可滚 + 找到被裁剪溢出的层」四条同时成立时，把那几层改成可触摸滚动；正常页面不碰。页面加 `?lgdiag=1` 可看布局诊断。刷新页面生效。 |
+| 手机端轮次导航 | 关 | 把 PC 右侧那根**轮次浮轨**搬到手机：DSH 在手机上其实照样渲染它（可跳转到某一轮、未加载的会先翻历史再跳、当前轮次跟随），只是被它自己的窄屏容器查询藏了起来（`@container (max-width: 900px)`）。开启后用一段只在 ≤1023px 生效的样式把它放出来，并贴到对话区右边缘（`right:2px`、宽 24px）以免压住正文；官方组件原样复用，插件不重写导航逻辑、不新建滚动容器、不加按钮。**已知短板**：每格 24×10px，格间距在官方 JS 里锁死 10px，"点得准"不如 PC。上游若改了隐藏规则，脚本会在 3 秒内自检失败并**整体摘掉样式**（页面回到官方原样）。刷新页面生效；`?lgdiag=1` 底部会多一屏轮次导航诊断。 |
 | 新设备需要命名确认 | **开** | 新设备首次通过门禁时要自己命名一次，之后才出现在设备列表里。 |
 | 新设备需要管理员批准 | 关 | 开启后，命名完还要你在设备列表点「批准」才能进入。 |
 | TLS | **自签 HTTPS** | 关闭会明文传输门禁密码；非回环 + 关闭 TLS 必须显式设置 `tls.allowInsecureLan: true`，否则**拒绝启动**。 |
@@ -121,6 +122,7 @@ dsh plugin --profile web add "link:$(pwd)"
     answerHeartbeat: true            # 代理代答 WebSocket 心跳（默认开；手机挂起时不被宿主回收）
     socketWatchdog: true             # 页面断线看门狗（默认开）
     mobileCompat: true               # 移动端兼容垫片（默认开）
+    mobileTurnRail: false            # 手机端显示官方轮次浮轨（默认关，刷新页面生效）
     dataDir: ~/.dsh/profiles/web/data/dsh-lan-guard   # 可选；缺省即用这个推导路径
     tls:
       mode: self-signed              # 'self-signed'（默认）| 'provided' | 'off'
@@ -147,10 +149,11 @@ dsh plugin --profile web add "link:$(pwd)"
 
 ## 兼容性
 
-当前版本：插件 **`0.4.6`**；兼容 DeepSeek Harness **`0.2.0-rc.2`**（仅声明，零代码）——该版本修掉了 `0.2.0-rc.1` 的会话裁剪回归，移动端裁剪补偿因此不再介入（保留以兼容旧版本）。
+当前版本：插件 **`0.5.0`**；兼容 DeepSeek Harness **`0.2.1-alpha.1`**（适配仅声明、零代码；本版另加一个默认关闭的 `mobileTurnRail`）。
 
 | 插件 | 已验证的 DeepSeek Harness | 这个版本是什么 |
 | --- | --- | --- |
+| **`0.5.0`** | **`0.2.1-alpha.1`**、**`0.2.0-rc.2`**、`0.2.0-rc.1`、`0.1.7-rc.2` | ①**适配（零代码）**：`rc.2 → 0.2.1-alpha.1` 的 266 个提交里，本插件依赖的 6 个面中只有 `ui-layout`（新增 `shell.bottom` 槽、frame 网格行改 `minmax(0,1fr) auto`）与 `ui-renderer`（删掉未被引用的 `invariant.ts`）有源码改动，两者都与本插件无关（`shell.bottom` 无人渲染，实测占位 0 高）。devDependency 升到 `dsh-host-webserver`/`dsh-client-connection` `0.2.1-alpha.1`，**并按新宿主包的 peer 要求连带把 `@deepseek-ai/cordis` 升到 `4.0.5-alpha.1`、`@deepseek-ai/schemastery` 升到 `3.18.5-alpha.1`**（`^4.0.4` 不含预发布版）；类型检查 + 368 个用例全绿。②**新增 `mobileTurnRail`（默认关）**：把被官方窄屏容器查询藏起来的轮次浮轨放出来。③窄屏四判据复测：右侧栏可见 100%、被裁层 0、可滚范围正常、补偿零介入，3080 与 3081 逐项一致 |
 | **`0.4.6`** | **`0.2.0-rc.2`**、**`0.2.0-rc.1`**、`0.1.7-rc.2` | 针对 `0.2.0-rc.2` 的验证版：代码零改动，只更新兼容元数据（`dsh.compatibility.dshReleases` 补 `0.2.0-rc.2`），并把两个宿主 devDependency 升到 `0.2.0-rc.2` 后重跑类型检查与全部用例。上游在 `rc.1 → rc.2` 之间只动了版本号（唯一源码改动是 `ui-renderer` 的 hooks 顺序修复，与本插件无关），因此本插件在 `rc.2` 上零改动可用；同时实测确认移动端裁剪补偿在 `rc.2` 上已无作用对象（被裁层 1 → **0**，可滚范围 336px → **92343px**，脚本每轮自检后整体撤销、不写任何内联样式） |
 | **`0.4.5`** | **`0.2.0-rc.1`**、`0.1.7-rc.2` | 长会话的正文是在官方滚动层拿到少量可滚范围**之后**才挂载的，旧逻辑把这个中间态当成「已正常」收工，晚出现的 `overflow:hidden` 层再也没人放行（真机实测：可滚范围 336px、滚动层内部仍有 1 层被裁）。现在改为在既有轮询窗口内继续侦测并放行迟到的裁剪层：可滚范围 336px → 6889px，被裁层 1 → 0，官方「回到底部」仍在屏内 |
 | **`0.4.4`** | **`0.2.0-rc.1`**、`0.1.7-rc.2` | 修好 DSH `0.2.0-rc.1` 上的 iOS 会话滚动：官方滚动层内部有一层 `overflow:hidden` 且高度锁死，把会话内容裁掉（真机实测：21083px 的内容只换来 336px 可滚范围），表现为打开会话不在最新、手指几乎拖不动。`mobileScrollFix` 现在让该层长高并脱离滚动容器身份，可滚范围恢复到 20675px；真机验收同时确认输入框仍吸底、官方「回到底部」按钮回到原位 |
@@ -169,7 +172,7 @@ dsh plugin --profile web add "link:$(pwd)"
 | `0.1.1` | `0.1.7-rc.1` | 文档版：中英双语用户 README |
 | `0.1.0` | `0.1.7-rc.1` | 首个版本：门禁反向代理、自签 HTTPS、设备配对、设置页、扫码访问 |
 
-- 声明范围 `>=0.1.7-rc.1 <0.3.0`（`dsh.engines.dsh`）；已验证版本：`0.1.7-rc.1`、`0.1.7-rc.2`、`0.2.0-rc.1`、`0.2.0-rc.2`。未列入的 DSH 版本属**未验证**，请自行验证后再使用。上界在 `0.4.3` 从 `<0.2.0` 放宽：profile 加载会拒绝范围不含运行版本的 bundle，而裸的 `<0.2.0` 恰好排除 `0.2.0` 正式版。
+- 声明范围 `>=0.1.7-rc.1 <0.3.0`（`dsh.engines.dsh`）；已验证版本：`0.1.7-rc.1`、`0.1.7-rc.2`、`0.2.0-rc.1`、`0.2.0-rc.2`、`0.2.1-alpha.1`。未列入的 DSH 版本属**未验证**，请自行验证后再使用。上界在 `0.4.3` 从 `<0.2.0` 放宽：profile 加载会拒绝范围不含运行版本的 bundle，而裸的 `<0.2.0` 恰好排除 `0.2.0` 正式版。
 - 本插件用到的宿主/客户端接口：`webServer.register` / `webServer.tapIndex`（indexTaps）、`connection.requestRejection`、`connection.authenticatedUrl`、追加型 `settings.section` seat、`@deepseek-ai/schemastery`，以及 `profileContext`（用于推导默认数据目录）。
 - **破坏性默认值变更（`0.3.2` 起）**：`listenHost` 默认由 `127.0.0.1` 改为 `0.0.0.0`，装完重启一次即可用；`0.3.1` 及更早默认仅回环。门禁与自签 TLS 的默认值未变（未设密码仍拒绝所有设备）。详见 [CHANGELOG](CHANGELOG.md)。
 - **`0.4.0` 的验证状态**：三处改动都做了实测，不只跑用例。
@@ -218,6 +221,20 @@ dsh plugin --profile web add "link:$(pwd)"
 **「回到底部」按钮（0.4.2 起）**：窄屏下官方按钮的显示条件是「不在尾部」，而它判断的是官方认定的滚动层，与实际滚动层不一致，于是永远不出现；网关侧因此自带一个等价的浮动按钮（不在尾部时显示、点击平滑到底、官方按钮出现即让位、位置按输入框动态计算）。
 
 **自检**：在页面地址后加 `?lgdiag=1`，顶部会出现一屏诊断（`narrow / mobile / innerHeight / visualViewport / pageScrolls / clippingLayers / 是否已修`）。这一屏就是本次定位所用的数据，以后复现同类问题不必连 Mac 调试。
+
+### 手机上把 PC 右侧的轮次浮轨搬过来（`mobileTurnRail`，默认关，2026-10-06 新增）
+
+**它本来就在，只是被藏了。** PC 上会话右侧那根浮轨（灰刻度＝已加载轮次、暗刻度＝还没加载、黑长条＝当前轮次；悬停出预览；点未加载的会先翻历史再跳）在手机上**照样渲染、照样接线**——`ChatView` 无条件挂载它，隐藏它的只有官方自己的一条容器查询：
+`@container (max-width: 900px) { .frame { display: none } }`（容器是对话区，390px 手机上只有约 327px 宽）。
+
+**做法**：开启后用一段只在 `≤1023px` 生效的样式把它放出来，并把它从"压着正文"挪到对话区右侧留白里（`right:2px`、宽 24px）。
+**为什么不是重写一个**：轮次数据（`ui-chat` 的 `navigation.items()`）是包内私有的，插件拿不到；而解开隐藏就能**原样复用**官方组件的跳转、翻历史、当前轮次跟随与预览。所以本插件不新建滚动容器、不加自己的按钮、不监听自己的事件。
+
+**实测（0.2.1-alpha.1 / 390×844，把注入脚本原样打进页面）**：`display:none` → `block`、rect `[357,355,24,52]`、5 格、间距 10px、恰好 1 格 `aria-current`；对话列右缘 351、浮轨左缘 357 ⇒ **不压正文**；`Global panels` / `Session hierarchy` 两个 nav 完全不受影响；0 报错。
+
+**已知短板（所以默认关）**：每格只有 24×10px，而格间距在官方 JS 里锁死为 10px——用 CSS 撑到 44px 会让相邻格互相覆盖，反而点错。它适合"看得见 + 能跳"，不适合"随手点得准"。若真机上确认需要更粗的命中区，正确做法是再叠一层透明触控层（按手指纵向位置选轮次），而不是继续放大 CSS。
+
+**自检与回退**：脚本会在安装后自己确认浮轨真的可见；若上游把隐藏规则改强（更高优先级），它会在约 3 秒内**把注入的样式整体摘掉**，页面回到与官方逐字节一致的状态，并在 `__DSH_LAN_GUARD__.mobileTurnRail` 记 `"reverted"`（连接体检里显示为 `轮次导航 ✗ 已回退`）。`?lgdiag=1` 会在屏幕底部多一屏 `[lan-guard 轮次导航诊断]`。
 
 ## 安全边界
 
@@ -292,7 +309,7 @@ pnpm run verify    # 类型检查 + 测试 + 构建 + pack dry-run
 | 文档 | 用途 |
 | --- | --- |
 | [docs/dsh-version-adaptation.md](docs/dsh-version-adaptation.md) | **DSH 升级后照着走**：diff 哪些包、核对哪些接口、怎么落声明与发版 |
-| [docs/mobile-regression.md](docs/mobile-regression.md) | **电脑上就能跑的窄屏几何回归**：两个入口、四个量化判据、免 token 直连 3080 的方法 |
+| [docs/mobile-regression.md](docs/mobile-regression.md) | **电脑上就能跑的窄屏几何回归**：两个入口、四个量化判据（+1 条可选的轮次浮轨判据）、免 token 直连 3080 的方法 |
 | [docs/mobile-acceptance.md](docs/mobile-acceptance.md) | 真机验收清单（触摸、锁屏/切后台、语音这些本地验不了的） |
 | [docs/mobile-debug-runbook.md](docs/mobile-debug-runbook.md) | 手机端出问题时的排障手册（含 Web Inspector 探针） |
 | [docs/upstream-dsh-0.2.0-rc.1-session-scroll.md](docs/upstream-dsh-0.2.0-rc.1-session-scroll.md) | 投递上游的回归报告底稿（rc.1 会话裁剪） |
