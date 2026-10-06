@@ -1,5 +1,60 @@
 # Changelog
 
+## [0.5.0] — 2026-10-06（适配 DSH `0.2.1-alpha.1` + 手机端轮次浮轨 `mobileTurnRail`）
+
+### 一、适配 DeepSeek Harness `0.2.1-alpha.1`：**代码零改动**
+
+`rc.2 → 0.2.1-alpha.1` 共 266 个提交、4190 个文件。本插件依赖的 6 个面里只有两处有源码改动：
+
+| 上游改动 | 结论 |
+| --- | --- |
+| `packages/client/ui-layout`：frame 网格行 `100%` → `minmax(0,1fr) auto`；新增 `shell.bottom` 槽与 `.bottomRow`；`.handle` 加 `grid-area` | 与本插件无关：插件只占 `settings.section`，不渲染 `shell.bottom`；全仓只有 `experimental/inspector` 用它。实测该行 rect `[0,844,390,0]`，**不占高度** |
+| `packages/client/ui-renderer`：删掉 `invariant.ts`（与它的测试） | 与本插件无关：从未引用 |
+
+`host/webserver`、`client/connection`、`client/ui-slots`、`client/ui-settings`、`client/ui-settings-general` 只有 `package.json` / README 改动 —— `register` / `tapIndex` / `requestRejection` / `authenticatedUrl` / `settings.section` 全部原位。
+
+**⚠️ 新增一条适配步骤：vendor 连带升级。** 新的宿主包把 vendor 版本写进了自己的 peer 要求
+（`@deepseek-ai/cordis: ~4.0.5-alpha.1`、`@deepseek-ai/schemastery: ~3.18.5-alpha.1`；本次 vendor 同步升到
+`cordis 4.0.5-alpha.1`、`schemastery 3.18.5-alpha.1`）。只升两个宿主包会留下
+`unmet peer @deepseek-ai/cordis@~4.0.5-alpha.1: found 4.0.4`，而且 `^4.0.4` 这类范围**默认不含预发布版**，
+`4.0.5-alpha.1` 落在它外面 —— 所以必须显式钉到 `4.0.5-alpha.1` / `3.18.5-alpha.1`，类型环境才与运行环境一致。
+本插件的 `peerDependencies` **不需要改**：插件门禁只比对 `@deepseek-ai/dsh*`（`evaluatePluginCompatibility` 会
+`continue` 掉所有非 `dsh*` 名字），cordis/schemastery 的 peer 不参与丢弃判定。`dsh.engines.dsh`（`>=0.1.7-rc.1 <0.3.0`）
+与 `peerDependencies` 的上界顺手确认仍包住 `0.2.1-alpha.1`。
+
+**验证**：`dsh-host-webserver` / `dsh-client-connection` → `0.2.1-alpha.1`，`cordis` → `4.0.5-alpha.1`，
+`schemastery` → `3.18.5-alpha.1` 后：typecheck 干净、**368** 个用例全绿、`tsdown` 构建与 `npm pack --dry-run` 通过。
+
+**窄屏四判据在 `0.2.1-alpha.1` 上复测**（390×844；`3080` 直连与经代理 `3081` 逐项一致）：右侧栏展开后可见面积 **100%**
+且视口正中命中面板内、面板 `[data-rightbar-col]` 仍为 `[390,0,0,844]`、滚动层内部被裁层 **0**、
+`?lgdiag=1` 落在 `clipping=0` → `ineffective -> reverted (stock page)`、`html` 上只有 `color-scheme`（补偿**零介入**）。
+0.2.1 新增的 `[data-shell-bottom]` 实测高 0，不影响布局。
+
+### 二、新增 `mobileTurnRail`（**默认关**）：把 PC 右侧的轮次浮轨搬到手机
+
+DSH 在手机上**照样渲染**那根浮轨（`ChatView` 无条件挂载，可跳转、可翻历史、当前轮次跟随、悬停预览），
+藏它的只有官方一条容器查询：`@container (max-width: 900px) { .frame { display: none } }`
+（容器是对话区，390px 手机上只有约 327px 宽）。
+
+- **做法**：一段只在 `≤1023px` 生效的样式解除隐藏，并把浮轨从"压着正文"挪到对话区右侧留白（`right:2px`、宽 24px）。
+  选择器用属性（`nav[aria-label="轮次导航"|"Turn navigation"]`，CSS Module 类名是哈希的）加一条纯 `display` 的结构化兜底。
+- **不重写**：轮次数据（`ui-chat` 的 `navigation.items()`）是包内私有的，插件拿不到；解开隐藏即可**原样复用**官方组件。
+  插件不新建滚动容器、不加按钮、不加自己的监听。
+- **实测**（`0.2.1-alpha.1` / 390×844，把 `0.5.0` 的注入脚本原样打进页面）：`display:none` → `block`、
+  rect `[357,355,24,52]`、5 格、间距 10px、恰好 1 格 `aria-current`；对话列右缘 351 / 浮轨左缘 357 ⇒ **不压正文**；
+  `Global panels` 与 `Session hierarchy` 两个 nav 的 `display` 不变；0 报错。注入脚本在测试里**被执行**（假 DOM + 假时钟），
+  覆盖"可见即收工""无浮轨则保留样式等下一个会话""override 失效则整体回退"三条分支。
+- **已知短板（默认关的原因）**：每格 24×10px，格间距在官方 JS 里锁死为 10px（`TURN_SPACING_PX`、
+  `measureElement: () => 10`），CSS 撑到 44px 会让相邻格互相覆盖、反而点错。适合"看得见 + 能跳"，
+  不适合"随手点得准"；真机上若确认需要更粗命中区，正解是再叠一层透明触控层（按手指纵向位置选轮次），而不是继续放大 CSS。
+- **自检与回退**：安装后脚本确认浮轨真的可见；若上游把隐藏规则改强，约 **3 秒内整体摘掉注入样式**
+  （页面回到与官方逐字节一致）并在 `__DSH_LAN_GUARD__.mobileTurnRail` 记 `"reverted"`（连接体检显示 `轮次导航 ✗ 已回退`）。
+  `?lgdiag=1` 会在屏幕底部多一屏 `[lan-guard 轮次导航诊断]`（`#lgtr`，与顶部滚动诊断 `#lgsc` 分开，互不覆盖）。
+
+**变更文件**：`src/config.ts`（新开关，默认 false、volatile）、`src/settings/index-tap.ts`（新注入 + 自检/回退 + 注册）、
+`src/store/preferences.ts`、`src/settings/routes.ts`、`src/auth/manager.ts`、`src/client.ts`（「连接与证书」新增开关 +
+连接体检新增一行）、`docs/*`、双语 README。
+
 ## [0.4.6] — 2026-10-01（兼容 DeepSeek Harness `0.2.0-rc.2`）
 
 **结论：仅声明，零代码。** `0.2.0-rc.1 → 0.2.0-rc.2` 之间，本插件用到的宿主接口面没有发生任何变化：

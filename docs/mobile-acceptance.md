@@ -1,7 +1,7 @@
 # 手机端验收清单（dsh-lan-guard）
 
 每次改动代理、门禁、index 注入或手机相关行为后，按这份清单在**真机**上过一遍。
-本清单的实测基线数据来自 2026-10-01（插件 `0.4.6` / DSH `0.2.0-rc.2`）。
+本清单的实测基线数据来自 2026-10-06（插件 `0.5.0` / DSH `0.2.1-alpha.1`）；第 6 项仍是 2026-10-01 的真机结论。
 
 电脑上先跑得动的**几何回归**（两个入口、四个量化判据、免 token 直连 3080 的方法）见
 [mobile-regression.md](mobile-regression.md)；本页只留真机才做得准的部分：**触摸**、锁屏/切后台、语音。
@@ -17,9 +17,9 @@
 ```sh
 # 页面里实际注入了什么（按开关而定）
 curl -sk https://127.0.0.1:3081/ | grep -o 'dsh-lan-guard:[a-z-]*' | sort -u
-# 四个注入：settings-unlock / mobile-compat / mobile-scroll / socket-watchdog，
-# 各自只在对应开关为 true 时出现。代码里四个默认都是 true，但本机 profile 显式关掉了
-# settingsUnlock / mobileCompat / socketWatchdog，所以通常只看到 mobile-scroll。
+# 五个注入：settings-unlock / mobile-compat / mobile-scroll / mobile-turn-rail / socket-watchdog，
+# 各自只在对应开关为 true 时出现。代码里前四个默认 true、mobile-turn-rail 默认 false，
+# 但本机 profile 显式关掉了 settingsUnlock / mobileCompat / socketWatchdog，所以通常只看到 mobile-scroll。
 
 # 开关现值 + 代理侧计数（回环免锁）
 curl -sk https://127.0.0.1:3081/plugins/dsh-lan-guard/config | python3 -m json.tool | head -20
@@ -35,6 +35,8 @@ curl -sk https://127.0.0.1:3081/plugins/dsh-lan-guard/config | python3 -m json.t
 | 4 | 发一条消息（可用语音转文字） | 送入并收到回复 | ✅ 2026-09-28 |
 | 5 | 长会话里快速上下滑动 | 不出现「卡死/白屏」；输入框与浮层不遮挡正文 | ✅ 2026-09-28 |
 | 6 | 点会话头部的**「展开右侧栏」** | 按钮消失、右侧面板铺满屏幕、面板内容可滚动 | ✅ 2026-10-01 **iPhone 16 Pro Max / iOS Safari 真机确认**（电脑侧几何回归同样 100%，3080/3081 逐项一致） |
+| 7 | 打开 `mobileTurnRail` 后刷新页面，进入**多轮会话** | 对话区右边缘出现官方那根轮次浮轨（灰刻度=未加载、黑长条=当前轮次）；轻点刻度能跳到对应轮次，未加载的会先翻历史再跳；**不压住正文、不挡输入框** | ⏳ **真机待确认**（电脑侧 390×844 实测：`display:block`、rect `[357,355,24,52]`、5 格、间距 10px、1 格 active、0 报错；3081 经代理一致） |
+| 8 | 承 7：关掉 `mobileTurnRail` 再刷新 | 浮轨重新消失，页面与官方逐字节一致（`head` 里没有 `#lg-turn-rail`） | ⏳ 真机待确认（电脑侧已验证：样式整体移除、`__DSH_LAN_GUARD__.mobileTurnRail` 不再为 true） |
 
 ## 3. 代理侧对账（电脑上跑）
 
@@ -49,12 +51,16 @@ curl -sk https://127.0.0.1:3081/plugins/dsh-lan-guard/config | python3 -m json.t
 ## 4. 出问题时的自检
 
 - 页面地址后加 `?lgdiag=1` → 顶部显示一屏诊断（脚本每 1.5 秒追加一行）。重点看这三行：
-  - `clipping=N` —— 找到几层「`overflow:hidden`/`clip` 且内容溢出」的层。**DSH `0.2.0-rc.2` 上应为 `0`**；
+  - `clipping=N` —— 找到几层「`overflow:hidden`/`clip` 且内容溢出」的层。**DSH `0.2.1-alpha.1`（以及 `0.2.0-rc.2`）上应为 `0`**；
     出现 ≥1 才说明官方裁剪回归复发（`0.2.0-rc.1` 时该值为 `1`，被裁的是 `EvIC1a_frame`）。
   - `official scroll layer works; waiting for late clip` 或 `ineffective -> reverted (stock page)`
     —— 两条都表示「官方滚动层健康、补偿没有介入」，这在 rc.2 上是**正常**形态，不是故障。
   - `clip grow layers=N max A->B` —— 只有补偿真的动手才会出现。出现即说明有层被裁，
     记下 `N` 与 `A->B` 再报（对照：rc.1 上真机实测 336px → 6889px）。
+- 开了 `mobileTurnRail` 时，`?lgdiag=1` 还会在**屏幕底部**多一屏 `[lan-guard 轮次导航诊断]`（元素 `#lgtr`，与顶部滚动诊断 `#lgsc` 分开，互不覆盖）：
+  - `narrow=true` + `turn rail visible 24x52 at x357` —— 放行成功；
+  - `no turn rail yet (style kept for the next session)` —— 当前会话轮次 < 2（官方组件本身返回 `null`），样式保留给下一个会话，不是故障；
+  - `override lost -> reverted (stock page)` —— 上游把隐藏规则改强了，插件已把注入的样式整体摘掉（页面回到官方原样），此时应报 issue 而不是硬顶着用。
 - 会话停在「载入历史…」不出内容：先看 `connection.recent` 是否有 `1006`，再看手机是否需要重新登录门禁。
 
 ## 5. 已知边界
@@ -62,3 +68,4 @@ curl -sk https://127.0.0.1:3081/plugins/dsh-lan-guard/config | python3 -m json.t
 - `mobileCompat` / `socketWatchdog` 默认关闭（0.4.0 曾致手机整页空白）。要支持 iOS < 17.4 的老设备时，
   先单独打开 `mobileCompat`，用老设备验证 `AbortSignal.any` / `Promise.withResolvers` / `Iterator` 三项可用后再保留。
 - 经代理的页面（3081）管理台受 `auth.adminPolicy` 约束；本机直连 `127.0.0.1:3080` 免锁。
+- `mobileTurnRail`（默认关）把官方在窄屏藏起来的轮次浮轨放出来，但**触控精度仍是官方水平**：每格 24×10px，格间距在官方 JS 里锁死为 10px，用 CSS 撑大到 44px 会让相邻格互相覆盖。所以它适合"看得见、能跳转"，不适合"随手点得准"；真机上如果确实需要更粗的手指命中区，下一步是叠一层透明触控层（滑动选轮次），而不是继续撑 CSS。

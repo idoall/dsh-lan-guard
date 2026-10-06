@@ -6,7 +6,7 @@
   <a href="https://github.com/idoall/dsh-lan-guard/actions/workflows/ci.yml"><img src="https://github.com/idoall/dsh-lan-guard/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://www.npmjs.com/package/dsh-lan-guard"><img src="https://img.shields.io/npm/v/dsh-lan-guard?label=npm&color=CB3837" alt="npm version"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-0F172A" alt="MIT"></a>
-  <img src="https://img.shields.io/badge/DSH-0.2.0--rc.2-4B6BFB" alt="DSH 0.2.0-rc.2">
+  <img src="https://img.shields.io/badge/DSH-0.2.1--alpha.1-4B6BFB" alt="DSH 0.2.1-alpha.1">
 </p>
 
 <p align="center">English | <a href="README.zh.md">中文</a></p>
@@ -49,7 +49,7 @@ Requirements:
 
 - DeepSeek Harness with a Web profile
 - Node.js 20 or newer
-- Verified DeepSeek Harness: `0.2.0-rc.2`
+- Verified DeepSeek Harness: `0.2.1-alpha.1`
 
 Install from npm:
 
@@ -82,7 +82,7 @@ Then **restart DSH once** and open **Settings → 局域网访问**. After that 
 
 ## Settings
 
-Everything lives under **Settings → 局域网访问**, in four tabs. The non-sensitive switches (`enabled`, `listenPort`, `listenHost`, `networkInterface`, `settingsUnlock`, `answerHeartbeat`, `socketWatchdog`, `mobileCompat`, `auth.mode`, `auth.adminPolicy`, `auth.adminProtection`, `auth.allowLoopback`, `auth.requirePairing`, `auth.requireApproval`) are editable directly; `listenPort` and `listenHost` take effect on the next DSH restart; `settingsUnlock`, `socketWatchdog` and `mobileCompat` take effect on the next page load while `answerHeartbeat` also applies to connections that are already open; `dataDir` and `tls.*` are startup fields that need a profile-patch edit.
+Everything lives under **Settings → 局域网访问**, in four tabs. The non-sensitive switches (`enabled`, `listenPort`, `listenHost`, `networkInterface`, `settingsUnlock`, `answerHeartbeat`, `socketWatchdog`, `mobileCompat`, `mobileScrollFix`, `mobileTurnRail`, `auth.mode`, `auth.adminPolicy`, `auth.adminProtection`, `auth.allowLoopback`, `auth.requirePairing`, `auth.requireApproval`) are editable directly; `listenPort` and `listenHost` take effect on the next DSH restart; `settingsUnlock`, `socketWatchdog`, `mobileCompat`, `mobileScrollFix` and `mobileTurnRail` take effect on the next page load while `answerHeartbeat` also applies to connections that are already open; `dataDir` and `tls.*` are startup fields that need a profile-patch edit.
 
 | Setting | Default | Effect |
 | --- | --- | --- |
@@ -121,6 +121,7 @@ The plugin reads its config from its Cordis entry. **Every key has a usable defa
     answerHeartbeat: true            # proxy answers the WebSocket heartbeat (default on)
     socketWatchdog: true             # page-side socket watchdog (default on)
     mobileCompat: true               # mobile compatibility shims (default on)
+    mobileTurnRail: false            # show DSH's own turn rail on narrow screens (default off)
     dataDir: ~/.dsh/profiles/web/data/dsh-lan-guard   # optional; this is the derived default
     tls:
       mode: self-signed              # 'self-signed' (default) | 'provided' | 'off'
@@ -147,10 +148,11 @@ The plugin reads its config from its Cordis entry. **Every key has a usable defa
 
 ## Compatibility
 
-Current version: plugin **`0.4.6`**; compatible with DeepSeek Harness **`0.2.0-rc.2`** (declaration only, zero code) — that release fixed the `0.2.0-rc.1` transcript-clipping regression, so the mobile clip compensation no longer engages (it stays for older releases).
+Current version: plugin **`0.5.0`**; compatible with DeepSeek Harness **`0.2.1-alpha.1`** (the adaptation itself is declaration-only and touches no code; this release also adds one off-by-default switch, `mobileTurnRail`).
 
 | Plugin | Verified DeepSeek Harness | What this version is |
 | --- | --- | --- |
+| **`0.5.0`** | **`0.2.1-alpha.1`**, **`0.2.0-rc.2`**, `0.2.0-rc.1`, `0.1.7-rc.2` | (1) **Adaptation, zero code**: across the 266 commits from `rc.2` to `0.2.1-alpha.1`, of the six surfaces this plugin depends on only `ui-layout` (new `shell.bottom` slot, frame grid rows → `minmax(0,1fr) auto`) and `ui-renderer` (drops the unreferenced `invariant.ts`) changed source, and neither concerns this plugin (nothing renders `shell.bottom` — measured at 0 height). devDependencies raised to `dsh-host-webserver`/`dsh-client-connection` `0.2.1-alpha.1`, **and — because the new host packages peer-require the vendor prereleases — `@deepseek-ai/cordis` to `4.0.5-alpha.1` and `@deepseek-ai/schemastery` to `3.18.5-alpha.1`** (a `^4.0.4` range excludes prereleases); type check + 368 tests green. (2) **New `mobileTurnRail` (off by default)**: un-hides DSH's own turn rail, which the official narrow-screen container query hides. (3) Narrow-screen regression re-run: right sidebar 100% visible, 0 clipped layers, healthy scroll range, zero compensation engagement — identical on 3080 and 3081 |
 | **`0.4.6`** | **`0.2.0-rc.2`**, **`0.2.0-rc.1`**, `0.1.7-rc.2` | Verification release for `0.2.0-rc.2`: zero code changes, compatibility metadata only (`dsh.compatibility.dshReleases` gains `0.2.0-rc.2`), plus both host devDependencies raised to `0.2.0-rc.2` and the type check and full suite re-run. Upstream changed only version numbers between `rc.1` and `rc.2` (the sole source edit is a hooks-ordering fix in `ui-renderer`, unrelated to this plugin), so the plugin runs on `rc.2` unchanged; measurements also confirm the mobile clip compensation now has nothing to act on (clipped layers 1 → **0**, scroll range 336px → **92343px**; every polling round reverts wholesale and writes no inline style) |
 | **`0.4.5`** | **`0.2.0-rc.1`**, `0.1.7-rc.2` | Long transcripts hydrate after the official scroller has already picked up a small scroll range; the mobile clip compensation treated that intermediate state as healthy and stopped, so a late `overflow:hidden` layer was never released (measured on device: 336px of scroll range with 1 clipped layer inside the scroller). It now keeps looking inside the existing polling window and releases the late layer — 336px → 6889px, 1 clipped layer → 0, official "back to bottom" still on screen |
 | **`0.4.4`** | **`0.2.0-rc.1`**, `0.1.7-rc.2` | iOS session scrolling on DSH `0.2.0-rc.1`: an inner `overflow:hidden` layer with a locked height clipped the conversation (measured on device: 21083px of content behind a 336px scroll range), so a session did not open at the newest message and barely dragged. `mobileScrollFix` now grows that inner layer and drops its scroll-container role, restoring 20675px — verified on device with the composer still pinned and the official "back to bottom" button back in place |
@@ -169,7 +171,7 @@ Current version: plugin **`0.4.6`**; compatible with DeepSeek Harness **`0.2.0-r
 | `0.1.1` | `0.1.7-rc.1` | Documentation release: bilingual user READMEs |
 | `0.1.0` | `0.1.7-rc.1` | First release: gated reverse proxy, self-signed HTTPS, device pairing, settings page, QR access |
 
-- Declared range `>=0.1.7-rc.1 <0.3.0` (`dsh.engines.dsh`); verified releases: `0.1.7-rc.1`, `0.1.7-rc.2`, `0.2.0-rc.1`, `0.2.0-rc.2`. DSH versions not listed are **unverified** — verify them yourself before use. The upper bound was widened from `<0.2.0` in `0.4.3` because profile load refuses a bundle whose range excludes the running release, and a plain `<0.2.0` would exclude the `0.2.0` stable.
+- Declared range `>=0.1.7-rc.1 <0.3.0` (`dsh.engines.dsh`); verified releases: `0.1.7-rc.1`, `0.1.7-rc.2`, `0.2.0-rc.1`, `0.2.0-rc.2`, `0.2.1-alpha.1`. DSH versions not listed are **unverified** — verify them yourself before use. The upper bound was widened from `<0.2.0` in `0.4.3` because profile load refuses a bundle whose range excludes the running release, and a plain `<0.2.0` would exclude the `0.2.0` stable.
 - Host/client interfaces this plugin uses: `webServer.register` / `webServer.tapIndex` (indexTaps), `connection.requestRejection`, `connection.authenticatedUrl`, the additive `settings.section` seat, `@deepseek-ai/schemastery`, and `profileContext` (for deriving the default data directory).
 - **Breaking default change (from `0.3.2`)**: `listenHost` now defaults to `0.0.0.0` instead of `127.0.0.1`, so one restart after install is enough; `0.3.1` and earlier default to loopback only. The gate and self-signed TLS defaults are unchanged (with no password the gate still refuses every device). See the [CHANGELOG](CHANGELOG.md).
 - **`0.4.0` verification status**: all three changes carry measurements, not just specs.
@@ -219,6 +221,19 @@ The official UI is reused with zero modifications and adapts on a phone viewport
 
 **Self-check**: append `?lgdiag=1` to the page URL for an on-screen report (`narrow / mobile / innerHeight / visualViewport / pageScrolls / clippingLayers / patched`). That report is exactly the data that located this bug.
 
+### Bringing the PC turn rail to the phone (`mobileTurnRail`, off by default, added 2026-10-06)
+
+**It is already there — it is just hidden.** The rail that floats at the right of a session on the desktop (grey ticks = loaded turns, dim ticks = not loaded yet, black bar = the current turn; hovering previews; tapping an unloaded turn pages the history in first) is **rendered and wired up on a phone too**. `ChatView` mounts it unconditionally; the only thing hiding it is DSH's own container query:
+`@container (max-width: 900px) { .frame { display: none } }` (the container is the chat frame, only about 327px wide on a 390px phone).
+
+**What this switch does**: a stylesheet scoped to `≤1023px` un-hides that rail and moves it out of the message column into the chat frame's right gutter (`right:2px`, 24px wide).
+**Why not reimplement it**: the turn data (`ui-chat`'s `navigation.items()`) is package-internal, so a plugin cannot rebuild the rail — but it does not need to. Un-hiding **reuses** the official component: its jump-to-turn, its page-history-in, its active-turn follow and its previews. This plugin adds no scroll container, no button and no listener of its own.
+
+**Measured (0.2.1-alpha.1 / 390×844, with the injected script run verbatim)**: `display:none` → `block`, rect `[357,355,24,52]`, 5 marks, 10px pitch, exactly one `aria-current`; the message column ends at x=351 and the rail starts at x=357, so it **no longer covers the text**; the `Global panels` and `Session hierarchy` navs are untouched; zero page errors.
+
+**Known limit (hence off by default)**: each mark is only 24×10px, and the pitch is fixed at 10px inside DSH's own JavaScript — CSS-growing them to 44px would make neighbours overlap and mis-tap. It is good for "see where you are and jump", not for "tap precisely with a thumb". If on-device testing shows the hit area is the real problem, the right follow-up is a transparent touch layer (pick a turn from the finger's vertical position), not bigger CSS.
+
+**Self-check and revert**: after installing, the script confirms the rail is really visible. If upstream ever strengthens its hide (higher specificity), the script **removes the injected stylesheet wholesale** within about 3 seconds, leaving the page byte-identical to stock, and records `"reverted"` in `__DSH_LAN_GUARD__.mobileTurnRail` (surfaced as `轮次导航 ✗ 已回退` in the connection doctor). `?lgdiag=1` adds a `[lan-guard 轮次导航诊断]` panel at the bottom of the screen.
 
 ## Security boundary
 
@@ -293,7 +308,7 @@ The client half registers into the official additive `settings.section` seat; th
 | Document | What it is for |
 | --- | --- |
 | [docs/dsh-version-adaptation.md](docs/dsh-version-adaptation.md) | **Follow this when DSH ships a new version**: which packages to diff, which interfaces to check, how to declare and release |
-| [docs/mobile-regression.md](docs/mobile-regression.md) | **Narrow-screen geometry regression, runnable on a computer**: two entries, four quantitative criteria, token-free direct access to 3080 |
+| [docs/mobile-regression.md](docs/mobile-regression.md) | **Narrow-screen geometry regression, runnable on a computer**: two entries, four quantitative criteria (+1 optional turn-rail criterion), token-free direct access to 3080 |
 | [docs/mobile-acceptance.md](docs/mobile-acceptance.md) | On-device acceptance checklist (touch, lock screen / backgrounding, dictation — things a computer cannot verify) |
 | [docs/mobile-debug-runbook.md](docs/mobile-debug-runbook.md) | Runbook for when the phone misbehaves (incl. Web Inspector probes) |
 | [docs/upstream-dsh-0.2.0-rc.1-session-scroll.md](docs/upstream-dsh-0.2.0-rc.1-session-scroll.md) | Draft regression report for upstream (rc.1 transcript clipping) |

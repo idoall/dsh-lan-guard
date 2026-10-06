@@ -14,10 +14,10 @@ git log --oneline -3
 # 期望：HEAD 是 main 上最新的 release 提交（release-notes/v<版本>.md 存在）
 
 pnpm install && pnpm run verify
-# 期望：Tests 359 passed (359) + 与源码数一致的 Build complete
+# 期望：Tests 368 passed (368) + 与源码数一致的 Build complete
 
 dsh plugin --profile web add link:"$PWD"
-# 期望：列出的插件里有 dsh-lan-guard，且版本 = package.json 的 version（当前 0.4.6）
+# 期望：列出的插件里有 dsh-lan-guard，且版本 = package.json 的 version（当前 0.5.0）
 ```
 
 > ⚠️ **改完代码必须先 `pnpm run build` 再重启 dsh。** `link:` 安装下宿主只加载 `lib/`，而 `lib/` 被 `.gitignore` 忽略——git 操作不会重建它，重启前的旧构建会被**静默**加载（真机上表现为注入标记齐全、行为却像旧版）。自查一行：`curl -sk https://127.0.0.1:3081/ | grep -c touchPassThrough`，为 `0` 就说明跑的是没有本分支修复的旧产物。
@@ -25,9 +25,9 @@ dsh plugin --profile web add link:"$PWD"
 ```bash
 dsh web restart      # 或你的重启方式；等 10 秒
 curl -sk https://127.0.0.1:3081/ | grep -o 'dsh-lan-guard:[a-z-]*' | sort -u
-# 期望（settingsUnlock 关、mobileScrollFix 开时）：只有 dsh-lan-guard:mobile-scroll
-curl -sk https://127.0.0.1:3081/plugins/dsh-lan-guard/config | python3 -m json.tool | grep -E 'mobileScrollFix|settingsUnlock|answerHeartbeat'
-# 期望：answerHeartbeat true / mobileScrollFix true
+# 期望（settingsUnlock 关、mobileScrollFix 开、mobileTurnRail 关时）：只有 dsh-lan-guard:mobile-scroll
+curl -sk https://127.0.0.1:3081/plugins/dsh-lan-guard/config | python3 -m json.tool | grep -E 'mobileScrollFix|mobileTurnRail|settingsUnlock|answerHeartbeat'
+# 期望：answerHeartbeat true / mobileScrollFix true / mobileTurnRail false
 ```
 
 ## 第 1 关：手机接入
@@ -98,3 +98,6 @@ return (s.position==='fixed'||s.position==='absolute')&&r.width>innerWidth*.9&&r
 | ①里最上层 `peauto` 且不是按钮 | 还有别的层在拦 | 发整条链，我针对性放行 |
 | ②里 `clientH==scrollH` | 官方层没内容（高度链又断了） | 发 lgdiag 全屏，我查链 |
 | 拖动了但松手回弹/到底部不跟 | 惯性/跟随问题 | 描述现象即可 |
+| 开了 `mobileTurnRail` 却看不到浮轨 | 会话轮次 < 2（官方组件返回 null）、或页面是宽屏（>1023px，覆盖只在窄屏生效）、或 `narrow=false` | 看 `?lgdiag=1` 底部的 `[lan-guard 轮次导航诊断]`：`no turn rail yet` = 轮次不够；`narrow=false` = 视口太宽 |
+| 浮轨出现但点不中/点错轮次 | 已知短板：每格 24×10px、间距锁死 10px | 记下机型与手感，再决定是否做"透明触控层"那一版；不要靠继续放大 CSS 解决 |
+| `?lgdiag=1` 底部出现 `override lost -> reverted (stock page)` | 上游把隐藏规则改强了，插件已自动摘掉注入样式（页面回到官方原样） | 发这条 + DSH 版本，适配新版上游 |
