@@ -17,6 +17,7 @@ import {
   MOBILE_TURN_RAIL_MARKER,
   SOCKET_WATCHDOG_MARKER,
   TRANSPORT_GLOBAL,
+  TURN_RAIL_CARD_ID,
   TURN_RAIL_DIAG_ID,
   TURN_RAIL_STYLE_ID,
   UNLOCK_MARKER,
@@ -29,6 +30,7 @@ import {
   mobileMetaMarkup,
   mobileScrollFixScript,
   mobileTurnRailScript,
+  mobileTurnRailTouchScript,
   registerIndexPatches,
   settingsUnlockScript,
   socketWatchdogScript,
@@ -484,17 +486,27 @@ describe('injectMobileScrollFix', () => {
   })
 })
 
-/** One element in the fake DOM below. */
+/** One element in the fake DOM below. Only what the injected scripts touch. */
 class FakeElement {
-  readonly style = { cssText: '' }
+  readonly style: Record<string, string> = { cssText: '' }
   readonly children: FakeElement[] = []
+  readonly attrs: Record<string, string> = {}
+  readonly handlers = new Map<string, ((event: unknown) => void)[]>()
   parentNode: FakeElement | null = null
+  closestTarget: FakeElement | null = null
   textContent = ''
+  type = ''
+  focused = false
+  clicked = 0
   display = 'block'
   width = 28
   height = 52
 
   constructor(readonly tag: string, readonly id = '') {}
+
+  get tagName(): string {
+    return this.tag.toUpperCase()
+  }
 
   appendChild(child: FakeElement): FakeElement {
     child.parentNode = this
@@ -511,6 +523,87 @@ class FakeElement {
   getBoundingClientRect(): { x: number; y: number; width: number; height: number } {
     return { x: 343, y: 355, width: this.width, height: this.height }
   }
+
+  get firstElementChild(): FakeElement | null {
+    return this.children[0] ?? null
+  }
+
+  addEventListener(type: string, listener: (event: unknown) => void): void {
+    const list = this.handlers.get(type) ?? []
+    list.push(listener)
+    this.handlers.set(type, list)
+  }
+
+  removeEventListener(type: string, listener: (event: unknown) => void): void {
+    this.handlers.set(type, (this.handlers.get(type) ?? []).filter(entry => entry !== listener))
+  }
+
+  dispatch(type: string, event: Record<string, unknown>): void {
+    for (const listener of this.handlers.get(type) ?? []) listener(event)
+  }
+
+  getAttribute(name: string): string | null {
+    return this.attrs[name] ?? null
+  }
+
+  setAttribute(name: string, value: string): void {
+    this.attrs[name] = value
+  }
+
+  focus(): void {
+    this.focused = true
+  }
+
+  contains(node: unknown): boolean {
+    let walk = node as FakeElement | null
+    while (walk !== null && walk !== undefined) {
+      if (walk === this) return true
+      walk = walk.parentNode
+    }
+    return false
+  }
+
+  closest(): FakeElement | null {
+    return this.closestTarget
+  }
+
+  click(): void {
+    this.clicked += 1
+    this.dispatch('click', { target: this, stopPropagation() {}, preventDefault() {} })
+  }
+
+  /** Descendant lookup for the two selectors the injected code actually uses. */
+  querySelector(selector: string): FakeElement | null {
+    return this.querySelectorAll(selector)[0] ?? null
+  }
+
+  querySelectorAll(selector: string): FakeElement[] {
+    const out: FakeElement[] = []
+    const walk = (node: FakeElement): void => {
+      for (const child of node.children) {
+        if (selector === 'button' && child.tag === 'button') out.push(child)
+        if (selector.includes('tooltip') && child.attrs.role === 'tooltip') out.push(child)
+        walk(child)
+      }
+    }
+    walk(this)
+    return out
+  }
+}
+
+/** Options for {@link turnRailEnv}. */
+interface TurnRailEnvOptions {
+  /** What the width query reports; decides whether the rail override applies. */
+  matchMedia?: boolean
+  /** What `'(pointer: coarse)'` reports; decides whether the gesture layer installs. */
+  coarse?: boolean
+  nav?: 'absent' | 'hidden' | 'visible'
+  /** The rail's marks, by aria-label. Defaults to three loaded turns. */
+  marks?: readonly string[]
+  /** Text the official tooltip renders once a mark is focused. */
+  preview?: { prompt: string; reply: string }
+  /** Make `document.addEventListener` throw, to prove the rail survives it. */
+  brokenListeners?: boolean
 }
 
 /**
@@ -520,17 +613,46 @@ class FakeElement {
  * looks for `nav[aria-label=…]`, so `null` models "no rail mounted yet" (the
  * chat has fewer than two turns) and a `display:none` element models "the rail
  * is there but the override did not win" — the state that must revert.
+ *
+ * The nav mirrors the real shape — `nav > scroller > marks > button`, plus
+ * `nav > [role=tooltip]` — because the touch layer reads the tooltip text and
+ * scrolls the first child.
  */
-function turnRailEnv(options: { matchMedia?: boolean; nav?: 'absent' | 'hidden' | 'visible' } = {}) {
+function turnRailEnv(options: TurnRailEnvOptions = {}) {
   const created: FakeElement[] = []
   const head = new FakeElement('head')
   const nav = options.nav === undefined || options.nav === 'absent'
     ? null
     : new FakeElement('nav', '')
+  const marks: FakeElement[] = []
+  let tooltip: FakeElement | null = null
   if (nav !== null) {
     nav.display = options.nav === 'hidden' ? 'none' : 'block'
     if (options.nav === 'hidden') { nav.width = 0; nav.height = 0 }
+    nav.setAttribute('aria-label', '轮次导航')
+    const scroller = new FakeElement('div')
+    const marksBox = new FakeElement('div')
+    for (const label of options.marks ?? ['跳转到第 1 轮', '跳转到第 2 轮', '跳转到第 3 轮']) {
+      const mark = new FakeElement('button')
+      mark.setAttribute('aria-label', label)
+      mark.closestTarget = nav
+      marks.push(mark)
+      marksBox.appendChild(mark)
+    }
+    scroller.appendChild(marksBox)
+    nav.appendChild(scroller)
+    const preview = options.preview ?? { prompt: '预览里的提问', reply: '预览里的回答' }
+    tooltip = new FakeElement('div')
+    tooltip.setAttribute('role', 'tooltip')
+    const prompt = new FakeElement('div')
+    prompt.textContent = preview.prompt
+    const reply = new FakeElement('div')
+    reply.textContent = preview.reply
+    tooltip.appendChild(prompt)
+    tooltip.appendChild(reply)
+    nav.appendChild(tooltip)
   }
+  const documentListeners = new Map<string, ((event: Record<string, unknown>) => void)[]>()
   const doc = {
     head,
     body: new FakeElement('body'),
@@ -546,9 +668,26 @@ function turnRailEnv(options: { matchMedia?: boolean; nav?: 'absent' | 'hidden' 
       return node
     },
     getElementById: (id: string) => created.find(element => element.id === id) ?? null,
-    querySelector: () => nav,
+    querySelector: (selector: string) => (selector.includes('轮次导航') || selector.includes('Turn navigation') ? nav : null),
+    addEventListener: (type: string, listener: (event: Record<string, unknown>) => void) => {
+      if (options.brokenListeners === true) throw new Error('addEventListener is unavailable')
+      const list = documentListeners.get(type) ?? []
+      list.push(listener)
+      documentListeners.set(type, list)
+    },
+    removeEventListener: (type: string, listener: (event: Record<string, unknown>) => void) => {
+      documentListeners.set(type, (documentListeners.get(type) ?? []).filter(entry => entry !== listener))
+    },
   }
-  const self = { matchMedia: () => ({ matches: options.matchMedia ?? true }) }
+  const self = {
+    // Two different questions are asked of matchMedia: the width query decides
+    // whether the rail override applies, the pointer query whether the phone
+    // gesture layer installs. A fake that answers both with one flag would hide
+    // exactly the bugs this file exists to catch.
+    matchMedia: (query: string) => ({
+      matches: query === '(pointer: coarse)' ? (options.coarse ?? true) : (options.matchMedia ?? true),
+    }),
+  }
   const patches: Record<string, unknown> = {}
   return {
     doc,
@@ -557,6 +696,27 @@ function turnRailEnv(options: { matchMedia?: boolean; nav?: 'absent' | 'hidden' 
     head,
     created,
     nav,
+    marks,
+    tooltip,
+    /** Push one document-level event at the injected listeners. */
+    dispatch: (type: string, event: Record<string, unknown>) => {
+      for (const listener of [...(documentListeners.get(type) ?? [])]) listener(event)
+    },
+    card: () => created.find(element => element.id === TURN_RAIL_CARD_ID) ?? null,
+    cardParts: () => {
+      const card = created.find(element => element.id === TURN_RAIL_CARD_ID)
+      if (card === undefined) return null
+      const [head, body, row] = card.children
+      return {
+        card,
+        title: head?.children[0],
+        close: head?.children[1],
+        body,
+        prev: row?.children[0],
+        jump: row?.children[1],
+        next: row?.children[2],
+      }
+    },
     // Only styles still attached to the document count: the revert path
     // detaches the element instead of un-creating it.
     styles: () => created.filter(element => element.tag === 'style' && element.parentNode !== null),
@@ -574,13 +734,16 @@ function turnRailEnv(options: { matchMedia?: boolean; nav?: 'absent' | 'hidden' 
 function installTurnRail(env: ReturnType<typeof turnRailEnv>): Record<string, unknown> {
   const body = scriptBody(mobileTurnRailScript())
   const factory = new Function(
-    'self', 'globalThis', 'document', 'console', 'getComputedStyle', 'setInterval', 'clearInterval',
+    'self', 'globalThis', 'document', 'console', 'getComputedStyle',
+    'setInterval', 'clearInterval', 'setTimeout', 'clearTimeout', 'requestAnimationFrame',
     body,
   )
   factory(
     env.self, env.patches, env.doc, console,
     (element: FakeElement) => ({ display: element.display }),
     globalThis.setInterval, globalThis.clearInterval,
+    globalThis.setTimeout, globalThis.clearTimeout,
+    (callback: () => void) => { callback(); return 1 },
   )
   return env.ledger()
 }
@@ -599,7 +762,7 @@ describe('injectMobileTurnRail', () => {
     // so the override has to out-specify a class AND stay display-only.
     expect(body).toContain('轮次导航')
     expect(body).toContain('Turn navigation')
-    expect(body).toContain('display:block!important;right:2px!important;width:24px!important')
+    expect(body).toContain('display:block!important;right:4px!important;width:28px!important')
     // Structural fallback for a localised/renamed label; display-only.
     expect(body).toContain('div:has(>div [data-chat-flow])>div>nav{display:block!important}')
     // Self-check and full revert, like every other page patch here.
@@ -611,10 +774,22 @@ describe('injectMobileTurnRail', () => {
     expect(body).toContain('lgdiag')
     expect(body).toContain(TURN_RAIL_DIAG_ID)
     expect(TURN_RAIL_DIAG_ID).not.toBe('lgsc')
-    // It must stay a stylesheet: no new buttons, no listeners, no scroll containers.
-    expect(body).not.toContain('createElement("button")')
-    expect(body).not.toContain('addEventListener')
+    // The rail half stays a stylesheet: it never patches overflow or invents a
+    // second scroll container.
     expect(body).not.toContain('overflow-y","auto')
+    // The phone half: DSH's own preview is a HOVER affordance (onPointerMove /
+    // onFocus), which a touch screen can never reach, so the patch adds a hold
+    // gesture that reads the official tooltip instead of reimplementing it.
+    expect(body).toContain(TURN_RAIL_CARD_ID)
+    expect(body).toContain('(pointer: coarse)')
+    expect(body).toContain('touch-action:pan-y')
+    expect(body).toContain('-webkit-touch-callout:none')
+    expect(body).toContain('320')
+    expect(body).toContain('pointerdown')
+    expect(body).toContain('pointercancel')
+    expect(body).toContain('[role="tooltip"]')
+    expect(body).toContain('aria-label')
+    expect(body).toContain('swallowNextClick')
     // Idempotent.
     expect(injectMobileTurnRail(out)).toBe(out)
   })
@@ -683,6 +858,130 @@ describe('injectMobileTurnRail', () => {
       vi.advanceTimersByTime(1500 * 12)
       expect(env.styles()).toHaveLength(1)
       expect(patches.mobileTurnRail).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('opens a readable card when a mark is held, and reads the official tooltip', () => {
+    vi.useFakeTimers()
+    try {
+      const env = turnRailEnv({ nav: 'visible' })
+      installTurnRail(env)
+      expect(env.card()).toBeNull()
+
+      // Hold the SECOND mark. Nothing may happen before the hold threshold.
+      env.dispatch('pointerdown', { target: env.marks[1], clientY: 5 })
+      vi.advanceTimersByTime(300)
+      expect(env.card()).toBeNull()
+
+      vi.advanceTimersByTime(60)
+      const parts = env.cardParts()
+      expect(parts?.card.style.display).toBe('block')
+      // Focusing the mark is exactly what hovering does on the desktop, and it
+      // is how the official preview text becomes readable here.
+      expect(env.marks[1]?.focused).toBe(true)
+      expect(parts?.title?.textContent).toBe('预览里的提问')
+      expect(parts?.body?.textContent).toBe('预览里的回答')
+      expect(parts?.jump?.textContent).toBe('跳转到第 2 轮')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('leaves a drag alone: scrolling the rail must never pop the card', () => {
+    vi.useFakeTimers()
+    try {
+      const env = turnRailEnv({ nav: 'visible' })
+      installTurnRail(env)
+      env.dispatch('pointerdown', { target: env.marks[1], clientY: 5 })
+      env.dispatch('pointermove', { target: env.marks[1], clientY: 40 })
+      vi.advanceTimersByTime(2000)
+      expect(env.card()).toBeNull()
+      // And the pointerup that ends a cancelled hold must not arm anything.
+      env.dispatch('pointerup', { target: env.marks[1], clientY: 40 })
+      vi.advanceTimersByTime(2000)
+      expect(env.card()).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('lets the steppers pick the exact turn, so a 10px tick is not the target', () => {
+    vi.useFakeTimers()
+    try {
+      const env = turnRailEnv({ nav: 'visible' })
+      installTurnRail(env)
+      env.dispatch('pointerdown', { target: env.marks[0], clientY: 5 })
+      vi.advanceTimersByTime(400)
+      expect(env.cardParts()?.jump?.textContent).toBe('跳转到第 1 轮')
+
+      env.cardParts()?.next?.click()
+      expect(env.marks[1]?.focused).toBe(true)
+      expect(env.cardParts()?.jump?.textContent).toBe('跳转到第 2 轮')
+
+      env.cardParts()?.prev?.click()
+      expect(env.cardParts()?.jump?.textContent).toBe('跳转到第 1 轮')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('swallows the click a held touch emits, so holding never navigates', () => {
+    vi.useFakeTimers()
+    try {
+      const env = turnRailEnv({ nav: 'visible' })
+      installTurnRail(env)
+      env.dispatch('pointerdown', { target: env.marks[1], clientY: 5 })
+      vi.advanceTimersByTime(400)
+      const parts = env.cardParts()
+      const stopped: string[] = []
+      const click = (target: FakeElement) => ({
+        target,
+        stopPropagation: () => { stopped.push(target === parts?.jump ? 'card' : 'mark') },
+        preventDefault: () => {},
+      })
+
+      // The card's own button must keep working...
+      env.dispatch('click', click(parts?.jump as FakeElement))
+      expect(stopped).toEqual([])
+      // ...while the click the browser still fires for the held touch must not
+      // reach the official navigate handler.
+      env.dispatch('click', click(env.marks[1] as FakeElement))
+      expect(stopped).toEqual(['mark'])
+      // And the guard is one-shot: it does not keep eating later taps.
+      env.dispatch('click', click(env.marks[2] as FakeElement))
+      expect(stopped).toEqual(['mark'])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('jumps through the official handler, then dismisses itself', () => {
+    vi.useFakeTimers()
+    try {
+      const env = turnRailEnv({ nav: 'visible' })
+      installTurnRail(env)
+      env.dispatch('pointerdown', { target: env.marks[2], clientY: 5 })
+      vi.advanceTimersByTime(400)
+      env.cardParts()?.jump?.click()
+      // Clicking the mark is what a tap does, so the official load-and-jump /
+      // navigate path runs unchanged.
+      expect(env.marks[2]?.clicked).toBe(1)
+      expect(env.cardParts()?.card.style.display).toBe('none')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('still installs the rail when the touch layer cannot set itself up', () => {
+    vi.useFakeTimers()
+    try {
+      const env = turnRailEnv({ nav: 'visible', brokenListeners: true })
+      const patches = installTurnRail(env)
+      expect(env.styles()).toHaveLength(1)
+      expect(patches.mobileTurnRail).toBe(true)
+      expect(env.card()).toBeNull()
     } finally {
       vi.useRealTimers()
     }

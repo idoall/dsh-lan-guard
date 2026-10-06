@@ -75,7 +75,8 @@ UA: Mozilla/5.0 (iPhone; CPU iPhone OS 27_0 like Mac OS X) ... Version/27.0 Mobi
 | 2 | **会话可滚范围** | `[data-conversation-scroll]` 的 `scrollHeight - clientHeight` | 远大于 0（rc.2 长会话实测 **17433px**） |
 | 3 | **被裁层数** | 滚动层内部所有 `overflow-y` 为 `hidden`/`clip` 且内容溢出的 `div` 个数 | **0** |
 | 4 | **`?lgdiag=1` 尾部** | 诊断面板末几行 | 全是 `official scroll layer works` 或 `ineffective -> reverted (stock page)`；出现 `clip grow` 才说明补偿真的动手了 |
-| 5 | **（可选）轮次浮轨** | 打开 `mobileTurnRail` 后，`nav[aria-label="轮次导航"|"Turn navigation"]` 的 `display` 与 rect | `display:block`、宽 24、右边缘 = 对话框右缘 − 2px、格数 ≥2、间距 10px、恰好 1 格 `aria-current`；**其余 nav 的 `display` 不变** |
+| 5 | **（可选）轮次浮轨** | 打开 `mobileTurnRail` 后，`nav[aria-label="轮次导航"|"Turn navigation"]` 的 `display` 与 rect | `display:block`、宽 28、左边缘 = 正文列右缘（440px 视口实测 `[401,…,28,…]`）、格数 ≥2、间距 10px、恰好 1 格 `aria-current`、刻度 `::before` 高 3px；**其余 nav 的 `display` 不变** |
+| 6 | **（可选）轮次卡片** | 按住一个刻度约 0.3 秒 | `#lg-turn-card` 出现且 `display:block`、标题为该轮提问、正文为回复摘要、按钮文字为官方本地化的跳转文案；◀▶ 更新按钮文字；点跳转后卡片 `display:none` |
 
 判据 1 的失败形态很好认：**按钮点了会消失（`data-sidebar-right-open` 出现、`expandButtonGone = true`），
 但面板可见面积 0%** —— 说明状态切换成功、几何错位，是布局问题不是事件问题。此时看
@@ -97,11 +98,13 @@ UA: Mozilla/5.0 (iPhone; CPU iPhone OS 27_0 like Mac OS X) ... Version/27.0 Mobi
 | 新增的 `[data-shell-bottom]` 行 | rect `[0,844,390,0]`（0.2.1 新增的全宽底栏槽，无人渲染 ⇒ 不占高度） | 同左 |
 | JS 报错 | 0 | 0 |
 
-判据 5 同时拿到（0.2.1-alpha.1 / 390×844，把 `0.5.0` 的注入脚本原样打进页面）：
-浮轨 `display:none` → `block`、rect `[357,355,24,52]`、5 格、间距 10px、1 格 `aria-current`；
-对话列右缘 351、浮轨左缘 357 ⇒ **不再压住正文**；`Global panels` / `Session hierarchy` 两个 nav 的
-`display` 保持 `flex` 不变；0 报错。反向自检也实测过：用一条更高优先级的 `display:none !important`
-模拟"上游把隐藏规则改强"，脚本在 **3 秒内**把注入的 `<style>` 整体摘掉并记 `mobileTurnRail:"reverted"`。
+判据 5/6 同时拿到（0.2.1-alpha.1 / 440×956，把当前源码的注入脚本原样打进真实页面）：
+浮轨 `display:none` → `block`、rect `[401,411,28,52]`、5 格、间距 10px、1 格 `aria-current`、刻度 `::before` 高 3px；
+对话列右缘 401、浮轨左缘 401 ⇒ **不压住正文**；`Global panels` / `Session hierarchy` 两个 nav 的
+`display` 保持 `flex` 不变。按住刻度 0.4 秒 → `#lg-turn-card` 出现并读出该轮提问与回复；▶ 切到第 4 轮、◀ 切回第 3 轮；
+点跳转 → `[data-conversation-scroll].scrollTop 4295 → 8111` 且卡片收起；按住后拖动 60px **不**弹卡片；直接点击刻度仍照旧跳转；0 报错。
+反向自检也实测过：用一条更高优先级的 `display:none !important` 模拟"上游把隐藏规则改强"，
+脚本在 **3 秒内**把注入的 `<style>` 整体摘掉并记 `mobileTurnRail:"reverted"`。
 
 ## 五之二、历史基线（DSH 0.2.0-rc.2 / dsh-lan-guard 0.4.6，2026-10-01）
 
@@ -125,7 +128,7 @@ UA: Mozilla/5.0 (iPhone; CPU iPhone OS 27_0 like Mac OS X) ... Version/27.0 Mobi
 # 1) 确认在跑、且装的是预期版本
 lsof -nP -iTCP -sTCP:LISTEN | grep -E ':3080|:3081'
 grep '"version"' ~/.dsh/profiles/web/node_modules/dsh-lan-guard/package.json
-# 期望 0.5.0（或更新）；0.4.6 及更早没有 mobileTurnRail 开关
+# 期望 0.6.0（或更新）；0.4.6 及更早没有 mobileTurnRail 开关
 
 # 2) 注入与开关（回环免锁）
 curl -sk https://127.0.0.1:3081/ | grep -o 'dsh-lan-guard:[a-z-]*' | sort -u

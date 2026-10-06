@@ -267,6 +267,184 @@ export const TURN_RAIL_STYLE_ID = 'lg-turn-rail'
 /** Id of the opt-in `?lgdiag=1` report panel of this patch. */
 export const TURN_RAIL_DIAG_ID = 'lgtr'
 
+/** Id of the phone preview card the touch layer renders. */
+export const TURN_RAIL_CARD_ID = 'lg-turn-card'
+
+/**
+ * The phone-only touch layer for the turn rail.
+ *
+ * The official rail is a HOVER design: the preview bubble is driven by
+ * `onPointerMove` / `onFocus` on each mark, so on a touch screen it can never
+ * be read — a tap goes straight to `onClick` (navigate) and there is no hover
+ * state at all. Measured 2026-10-06 on DSH 0.2.1-alpha.1 / iPhone viewport:
+ * the marks are 28×10px with the pitch locked to 10px inside DSH's own
+ * JavaScript, so "tap the right one" is also a precision problem.
+ *
+ * This layer therefore ADDS a gesture instead of changing the existing one:
+ *
+ * - a plain tap still does exactly what it did (the official click navigates);
+ * - holding a mark for ~320ms opens a readable card with that turn's own
+ *   preview text (prompt + response), pulled from the official component by
+ *   focusing the mark — which is precisely what hovering does on the desktop,
+ *   only it survives the finger lifting;
+ * - the card carries ◀ / ▶ steppers and one big jump button, so the turn you
+ *   want never depends on hitting a 10px tick;
+ * - dragging (which scrolls the rail natively, `touch-action: pan-y`) or moving
+ *   more than 12px cancels the long press, so scrolling is untouched;
+ * - the click that a held touch still emits is swallowed once, so holding never
+ *   navigates by accident.
+ *
+ * Every entry point is wrapped, and any failure leaves the rail exactly as the
+ * official code left it. Rendered in DSH's own tokens so light/dark follow.
+ *
+ * @returns the ES5 body of the touch layer; callers embed it in the payload.
+ */
+export function mobileTurnRailTouchScript(): string {
+  return `
+/* --- touch preview layer: hovering is not a gesture a phone has --- */
+(function(){
+  if(!(S.matchMedia&&S.matchMedia('(pointer: coarse)').matches))return;
+  var CARD_ID="${TURN_RAIL_CARD_ID}";
+  var card=null,titleEl=null,bodyEl=null,jumpEl=null,prevEl=null,nextEl=null,closeEl=null;
+  var nav=null,mark=null,armed=false,armY=0,timer=0,lastY=0;
+  function one(sel,root){try{return (root||doc).querySelector(sel)}catch(e){return null}}
+  function navOf(node){try{return node&&node.closest?node.closest(SEL):null}catch(e){return null}}
+  function marks(){return nav?nav.querySelectorAll("button"):[]}
+  function el(tag,style,text){
+    var node=doc.createElement(tag);
+    if(style)node.style.cssText=style;
+    if(text)node.textContent=text;
+    return node;
+  }
+  var BTN="border:0;border-radius:9px;font:inherit;font-weight:600;min-height:38px;"
+    +"background:var(--dsw-alias-fill-tsp-secondary,rgba(0,0,0,.06));"
+    +"color:var(--dsw-alias-label-primary,#111);pointer-events:auto;padding:0 10px";
+  function build(){
+    if(card)return;
+    card=el("div",'position:fixed;left:12px;right:44px;top:76px;z-index:2147483645;display:none;'
+      +"box-sizing:border-box;padding:10px 12px 12px;border-radius:14px;pointer-events:none;"
+      +"background:var(--dsw-alias-bg-layer-1,#fff);color:var(--dsw-alias-label-primary,#111);"
+      +"box-shadow:var(--dsw-elevation-panel,0 10px 30px rgba(0,0,0,.22));"
+      +"border:.5px solid var(--dsw-alias-border-l2,rgba(0,0,0,.14));"
+      +'font:13px/1.45 -apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB",sans-serif');
+    card.id=CARD_ID;
+    var head=el("div","display:flex;align-items:flex-start;gap:8px");
+    titleEl=el("div","flex:1;min-width:0;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap");
+    closeEl=el("button",BTN+"min-width:34px;padding:0 8px;flex:none","✕");
+    closeEl.type="button";
+    head.appendChild(titleEl);head.appendChild(closeEl);
+    bodyEl=el("div","margin-top:4px;color:var(--dsw-alias-label-secondary,#666);"
+      +"white-space:pre-wrap;word-break:break-word;overflow:hidden;"
+      +"display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:5");
+    var row=el("div","display:flex;gap:8px;margin-top:8px");
+    prevEl=el("button",BTN+"flex:none;min-width:44px","◀");
+    nextEl=el("button",BTN+"flex:none;min-width:44px","▶");
+    jumpEl=el("button",BTN+"flex:1;background:var(--dsw-alias-state-business-primary,#3964fe);color:#fff");
+    prevEl.type="button";nextEl.type="button";jumpEl.type="button";
+    row.appendChild(prevEl);row.appendChild(jumpEl);row.appendChild(nextEl);
+    card.appendChild(head);card.appendChild(bodyEl);card.appendChild(row);
+    (doc.body||doc.documentElement).appendChild(card);
+    closeEl.addEventListener("click",function(ev){ev.stopPropagation();hide()});
+    prevEl.addEventListener("click",function(ev){ev.stopPropagation();step(-1)});
+    nextEl.addEventListener("click",function(ev){ev.stopPropagation();step(1)});
+    jumpEl.addEventListener("click",function(ev){
+      ev.stopPropagation();ev.preventDefault();
+      var m=mark;hide();
+      if(m){try{m.click()}catch(e){}}
+    });
+  }
+  function hide(){
+    armed=false;mark=null;
+    if(card)card.style.display="none";
+    try{if(nav)nav.removeAttribute("data-lg-turn-card")}catch(e){}
+  }
+  /** The official bubble is what we read; it must not also float under the finger. */
+  function own(){try{if(nav)nav.setAttribute("data-lg-turn-card","1")}catch(e){}}
+  function paint(){
+    if(!card||!mark)return;
+    var label="";
+    try{label=mark.getAttribute("aria-label")||""}catch(e){}
+    var tip=nav?one('[role="tooltip"]',nav):null;
+    var prompt="",reply="";
+    if(tip&&tip.children){
+      if(tip.children[0])prompt=tip.children[0].textContent||"";
+      if(tip.children[1])reply=tip.children[1].textContent||"";
+    }
+    titleEl.textContent=prompt||label||"轮次";
+    bodyEl.textContent=reply;
+    bodyEl.style.display=reply?"block":"none";
+    jumpEl.textContent=label||"跳转";
+    var vh=S.innerHeight||0;card.style.top=(lastY<vh*0.45?Math.round(vh*0.45):76)+"px";
+    card.style.display="block";
+    own();
+  }
+  function focusMark(node){
+    if(!node)return;
+    mark=node;
+    try{node.focus({preventScroll:true})}catch(e){try{node.focus()}catch(e2){}}
+    paint();
+    // React commits the official tooltip on a later frame; re-read once it has.
+    try{requestAnimationFrame(function(){requestAnimationFrame(function(){
+      if(card&&card.style.display!=="none"&&mark===node)paint()
+    })})}catch(e){}
+  }
+  function step(dir){
+    var all=marks(),i=-1,k=0;
+    for(k=0;k<all.length;k++){if(all[k]===mark){i=k;break}}
+    var j=i+dir;
+    if(j>=0&&j<all.length){focusMark(all[j]);return}
+    var sc=nav?nav.firstElementChild:null;
+    if(sc){sc.scrollTop+=dir*30;try{requestAnimationFrame(function(){
+      var l2=marks();if(!l2.length)return;
+      focusMark(dir<0?l2[l2.length-1]:l2[0]);
+    })}catch(e){}}
+  }
+  function swallowNextClick(){
+    var handler=function(ev){
+      try{if(card&&card.contains(ev.target))return}catch(e){}
+      try{ev.stopPropagation();ev.preventDefault()}catch(e){}
+      try{doc.removeEventListener("click",handler,true)}catch(e){}
+    };
+    try{doc.addEventListener("click",handler,true)}catch(e){}
+    setTimeout(function(){try{doc.removeEventListener("click",handler,true)}catch(e){}},900);
+  }
+  function open(node){
+    nav=navOf(node)||nav;
+    if(!nav)return;
+    lastY=armY;
+    build();
+    focusMark(node);
+    swallowNextClick();
+    log("turn preview: "+(node.getAttribute("aria-label")||""));
+  }
+  function onDown(ev){
+    try{
+      if(card&&card.style.display==="block"&&!card.contains(ev.target))hide();
+      var node=ev.target;
+      if(!node||node.tagName!=="BUTTON")return;
+      var found=navOf(node);
+      if(!found)return;
+      nav=found;armed=true;armY=ev.clientY;lastY=ev.clientY;
+      clearTimeout(timer);
+      timer=setTimeout(function(){if(!armed)return;armed=false;open(node)},320);
+    }catch(e){}
+  }
+  function onMove(ev){
+    try{
+      if(!armed)return;
+      if(Math.abs(ev.clientY-armY)>16){armed=false;clearTimeout(timer)}
+    }catch(e){}
+  }
+  function cancel(){armed=false;clearTimeout(timer)}
+  doc.addEventListener("pointerdown",onDown,true);
+  doc.addEventListener("pointermove",onMove,true);
+  doc.addEventListener("pointerup",cancel,true);
+  doc.addEventListener("pointercancel",cancel,true);
+  log("touch preview layer ready");
+})();
+`
+}
+
 /**
  * Un-hide DSH's own turn-navigation rail on narrow screens (opt-in, default OFF).
  *
@@ -300,11 +478,16 @@ export const TURN_RAIL_DIAG_ID = 'lgtr'
  * - it never touches anything but the rail itself: no inline styles on `html`,
  *   `body` or `#root`, no new buttons, no scroll containers, no listeners.
  *
- * Known limit (why this is the "A" cut): the rail's mark pitch is fixed at
- * 10px in JavaScript (`TURN_SPACING_PX`, `measureElement: () => 10`), so CSS
- * cannot grow the 24×10px marks into 44px touch targets without making
- * neighbours overlap. Aiming therefore stays as precise as on the desktop; a
- * transparent touch layer is the follow-up cut, not this one.
+ * Known limit: the rail's mark pitch is fixed at 10px in JavaScript
+ * (`TURN_SPACING_PX`, `measureElement: () => 10`), so CSS cannot grow the 28×10px
+ * marks into 44px touch targets without making neighbours overlap. That is why
+ * this patch ships a second, phone-only half — {@link mobileTurnRailTouchScript}
+ * — which gives the rail a gesture it can actually be operated with (hold to
+ * preview, steppers to pick the exact turn) instead of relying on precision.
+ *
+ * The rail itself only ever moves inside the chat frame's right gutter: at
+ * `right:4px` / `width:28px` it starts exactly where the message column ends, so
+ * it can never cover text.
  *
  * `?lgdiag=1` adds a small report panel (`#lgtr`) that survives a phone with no
  * attached debugger.
@@ -331,7 +514,15 @@ export function mobileTurnRailScript(): string {
     + 'if(!doc.getElementById("' + TURN_RAIL_STYLE_ID + '")){'
     + 'var st=doc.createElement("style");st.id="' + TURN_RAIL_STYLE_ID + '";'
     + 'st.appendChild(doc.createTextNode("@media (max-width: 1023px){"+SEL'
-    + '+"{display:block!important;right:2px!important;width:24px!important}"'
+    // Phones: the rail cannot move further inwards than the chat frame's right
+    // gutter (the transcript column starts there), so it takes the whole gutter
+    // (28px at right:4px) and trades the last 2px for a wider target. The tick
+    // grows 2px -> 3px because a hairline is unreadable on a phone.
+    + '+"{display:block!important;right:4px!important;width:28px!important;'
+    + 'touch-action:pan-y;-webkit-touch-callout:none}"'
+    + '+"nav[aria-label=\\"轮次导航\\"] button::before,nav[aria-label=\\"Turn navigation\\"] button::before{height:3px!important}"'
+    + '+"nav[aria-label=\\"轮次导航\\"][data-lg-turn-card] [role=\\"tooltip\\"],'
+    + 'nav[aria-label=\\"Turn navigation\\"][data-lg-turn-card] [role=\\"tooltip\\"]{display:none!important}"'
     // Structural fallback: the chat frame is the div holding both the rail slot
     // and the transcript root; display-only, so a stray match is a no-op.
     + '+"div:has(>div [data-chat-flow])>div>nav{display:block!important}"+"}"));'
@@ -359,6 +550,9 @@ export function mobileTurnRailScript(): string {
     + 'log("style installed");'
     + 'run();'
     + 'var t=setInterval(function(){if(done){clearInterval(t);return}run()},1500);'
+    // The phone interaction layer is installed last and in its own guard: a
+    // failure there must never cost the rail itself.
+    + 'try{' + mobileTurnRailTouchScript() + '}catch(e){}'
     + '}catch(e){}})()</script>'
 }
 
