@@ -229,9 +229,21 @@ The official UI is reused with zero modifications and adapts on a phone viewport
 **What this switch does**: a stylesheet scoped to `≤1023px` un-hides that rail and moves it out of the message column into the chat frame's right gutter (`right:2px`, 24px wide).
 **Why not reimplement it**: the turn data (`ui-chat`'s `navigation.items()`) is package-internal, so a plugin cannot rebuild the rail — but it does not need to. Un-hiding **reuses** the official component: its jump-to-turn, its page-history-in, its active-turn follow and its previews. This plugin adds no scroll container, no button and no listener of its own.
 
-**Measured (0.2.1-alpha.1 / 390×844, with the injected script run verbatim)**: `display:none` → `block`, rect `[357,355,24,52]`, 5 marks, 10px pitch, exactly one `aria-current`; the message column ends at x=351 and the rail starts at x=357, so it **no longer covers the text**; the `Global panels` and `Session hierarchy` navs are untouched; zero page errors.
+**Measured (0.2.1-alpha.1 / 440×956, iPhone 16 Pro Max, injected script run verbatim against the real page)**: `display:none` → `block`, rect `[401,411,28,52]`, 5 marks, 10px pitch, exactly one `aria-current`; the message column ends at x=401 and the rail starts at x=401, so it **never covers the text**; the `Global panels` and `Session hierarchy` navs are untouched; holding a mark for 0.4s opens the card with that turn's prompt and reply, ◀/▶ step to the neighbouring turns, the jump button moved `scrollTop 4295 → 8111` and dismissed the card, a 60px drag opened nothing, and there were zero page errors.
 
-**Known limit (hence off by default)**: each mark is only 24×10px, and the pitch is fixed at 10px inside DSH's own JavaScript — CSS-growing them to 44px would make neighbours overlap and mis-tap. It is good for "see where you are and jump", not for "tap precisely with a thumb". If on-device testing shows the hit area is the real problem, the right follow-up is a transparent touch layer (pick a turn from the finger's vertical position), not bigger CSS.
+**Why a phone needs a gesture layer of its own**: the official preview is a HOVER affordance (`onPointerMove` / `onFocus` drive the bubble), so a touch screen can never reach it — a tap goes straight to `onClick` and navigates. The plugin therefore leaves the official logic alone and ADDS a gesture:
+
+| Gesture | What happens |
+| --- | --- |
+| Tap a mark | Unchanged: jump to that turn (paging history in first when needed) |
+| **Hold a mark for ~0.3s** | A readable **turn card** opens: that turn's prompt plus an excerpt of the reply — the very text the official component renders for a hover, read out by focusing the mark |
+| ◀ / ▶ on the card | Step turn by turn while reading, so a 10px tick is never the target |
+| “Jump to turn N” on the card | Runs the official click and dismisses the card |
+| Drag (>16px) while holding | Cancels the hold so the rail still scrolls, and the card never pops |
+
+The card exists only on a coarse pointer and a narrow screen, and closes on ✕, on a tap outside, or after a jump.
+
+**Known limit (hence off by default)**: each mark is 28×10px and the pitch is fixed at 10px inside DSH's own JavaScript, so CSS-growing them to 44px would make neighbours overlap and mis-tap. Precision comes from the card and its steppers, not from bigger marks. The rail also cannot move further inwards: its left edge sits exactly on the message column (measured on a 440px viewport: rail `[401,411,28,52]`, column right edge 401), and anything further left would cover text.
 
 **Self-check and revert**: after installing, the script confirms the rail is really visible. If upstream ever strengthens its hide (higher specificity), the script **removes the injected stylesheet wholesale** within about 3 seconds, leaving the page byte-identical to stock, and records `"reverted"` in `__DSH_LAN_GUARD__.mobileTurnRail` (surfaced as `轮次导航 ✗ 已回退` in the connection doctor). `?lgdiag=1` adds a `[lan-guard 轮次导航诊断]` panel at the bottom of the screen.
 
