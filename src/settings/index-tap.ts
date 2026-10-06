@@ -378,10 +378,29 @@ export function mobileTurnRailTouchScript(): string {
     card.style.display="block";
     own();
   }
-  function focusMark(node){
+  /**
+   * Ask the OFFICIAL component to render its preview without focusing the mark.
+   *
+   * focus({preventScroll:true}) looks harmless in Chromium, but iOS Chrome
+   * is WebKit: WebKit can still scroll a focused right-edge button into view,
+   * shifting the visual viewport right and leaving the left edge off-screen.
+   * The desktop component already accepts pointermove as its hover signal,
+   * so dispatch that bubbling event instead. It produces the same tooltip text
+   * without asking the browser to move focus or scroll anything into view.
+   */
+  function previewMark(node){
     if(!node)return;
     mark=node;
-    try{node.focus({preventScroll:true})}catch(e){try{node.focus()}catch(e2){}}
+    try{
+      var r=node.getBoundingClientRect();
+      if(typeof S.PointerEvent==="function"){
+        node.dispatchEvent(new S.PointerEvent("pointermove",{
+          bubbles:true,cancelable:false,pointerType:"touch",clientX:r.left+r.width/2,clientY:r.top+r.height/2
+        }));
+      }else if(typeof S.Event==="function"){
+        node.dispatchEvent(new S.Event("pointermove",{bubbles:true}));
+      }
+    }catch(e){}
     paint();
     // React commits the official tooltip on a later frame; re-read once it has.
     try{requestAnimationFrame(function(){requestAnimationFrame(function(){
@@ -392,11 +411,11 @@ export function mobileTurnRailTouchScript(): string {
     var all=marks(),i=-1,k=0;
     for(k=0;k<all.length;k++){if(all[k]===mark){i=k;break}}
     var j=i+dir;
-    if(j>=0&&j<all.length){focusMark(all[j]);return}
+    if(j>=0&&j<all.length){previewMark(all[j]);return}
     var sc=nav?nav.firstElementChild:null;
     if(sc){sc.scrollTop+=dir*30;try{requestAnimationFrame(function(){
       var l2=marks();if(!l2.length)return;
-      focusMark(dir<0?l2[l2.length-1]:l2[0]);
+      previewMark(dir<0?l2[l2.length-1]:l2[0]);
     })}catch(e){}}
   }
   function swallowNextClick(){
@@ -413,7 +432,7 @@ export function mobileTurnRailTouchScript(): string {
     if(!nav)return;
     lastY=armY;
     build();
-    focusMark(node);
+    previewMark(node);
     swallowNextClick();
     log("turn preview: "+(node.getAttribute("aria-label")||""));
   }

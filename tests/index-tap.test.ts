@@ -497,6 +497,7 @@ class FakeElement {
   textContent = ''
   type = ''
   focused = false
+  pointerMoves = 0
   clicked = 0
   display = 'block'
   width = 28
@@ -520,8 +521,9 @@ class FakeElement {
     child.parentNode = null
   }
 
-  getBoundingClientRect(): { x: number; y: number; width: number; height: number } {
-    return { x: 343, y: 355, width: this.width, height: this.height }
+  getBoundingClientRect(): { x: number; y: number; left: number; top: number; right: number; bottom: number; width: number; height: number } {
+    const left = 343, top = 355
+    return { x: left, y: top, left, top, right: left + this.width, bottom: top + this.height, width: this.width, height: this.height }
   }
 
   get firstElementChild(): FakeElement | null {
@@ -572,6 +574,12 @@ class FakeElement {
     this.dispatch('click', { target: this, stopPropagation() {}, preventDefault() {} })
   }
 
+  dispatchEvent(event: { type?: unknown }): boolean {
+    if (event.type === 'pointermove') this.pointerMoves += 1
+    if (typeof event.type === 'string') this.dispatch(event.type, event as Record<string, unknown>)
+    return true
+  }
+
   /** Descendant lookup for the two selectors the injected code actually uses. */
   querySelector(selector: string): FakeElement | null {
     return this.querySelectorAll(selector)[0] ?? null
@@ -600,7 +608,7 @@ interface TurnRailEnvOptions {
   nav?: 'absent' | 'hidden' | 'visible'
   /** The rail's marks, by aria-label. Defaults to three loaded turns. */
   marks?: readonly string[]
-  /** Text the official tooltip renders once a mark is focused. */
+  /** Text the official tooltip renders after a mark receives its hover signal. */
   preview?: { prompt: string; reply: string }
   /** Make `document.addEventListener` throw, to prove the rail survives it. */
   brokenListeners?: boolean
@@ -679,6 +687,14 @@ function turnRailEnv(options: TurnRailEnvOptions = {}) {
       documentListeners.set(type, (documentListeners.get(type) ?? []).filter(entry => entry !== listener))
     },
   }
+  class FakePointerEvent {
+    readonly type: string
+    constructor(type: string, init: Record<string, unknown> = {}) {
+      this.type = type
+      Object.assign(this, init)
+    }
+  }
+  class FakeEvent extends FakePointerEvent {}
   const self = {
     // Two different questions are asked of matchMedia: the width query decides
     // whether the rail override applies, the pointer query whether the phone
@@ -687,6 +703,8 @@ function turnRailEnv(options: TurnRailEnvOptions = {}) {
     matchMedia: (query: string) => ({
       matches: query === '(pointer: coarse)' ? (options.coarse ?? true) : (options.matchMedia ?? true),
     }),
+    PointerEvent: FakePointerEvent,
+    Event: FakeEvent,
   }
   const patches: Record<string, unknown> = {}
   return {
@@ -878,9 +896,11 @@ describe('injectMobileTurnRail', () => {
       vi.advanceTimersByTime(60)
       const parts = env.cardParts()
       expect(parts?.card.style.display).toBe('block')
-      // Focusing the mark is exactly what hovering does on the desktop, and it
-      // is how the official preview text becomes readable here.
-      expect(env.marks[1]?.focused).toBe(true)
+      // The mobile layer sends the same pointermove signal the desktop hover
+      // handler consumes; it must NOT focus the right-edge button (iOS Chrome
+      // can scroll a focused button into view, shifting the visual viewport).
+      expect(env.marks[1]?.pointerMoves).toBeGreaterThan(0)
+      expect(env.marks[1]?.focused).toBe(false)
       expect(parts?.title?.textContent).toBe('预览里的提问')
       expect(parts?.body?.textContent).toBe('预览里的回答')
       expect(parts?.jump?.textContent).toBe('跳转到第 2 轮')
@@ -917,7 +937,7 @@ describe('injectMobileTurnRail', () => {
       expect(env.cardParts()?.jump?.textContent).toBe('跳转到第 1 轮')
 
       env.cardParts()?.next?.click()
-      expect(env.marks[1]?.focused).toBe(true)
+      expect(env.marks[1]?.pointerMoves).toBeGreaterThan(0)
       expect(env.cardParts()?.jump?.textContent).toBe('跳转到第 2 轮')
 
       env.cardParts()?.prev?.click()
