@@ -236,6 +236,33 @@ export function buildUpstreamResponseHeaders(
  * @param statusMessage - upstream status message.
  * @returns the raw head bytes to write to the visitor's socket.
  */
+/**
+ * Mark an HTML document uncacheable when the upstream offers no policy of its own.
+ *
+ * DSH's index ships without `cache-control`, `etag` or `last-modified`, so a
+ * browser is free to reuse the document it rendered before a `dsh web` restart.
+ * That stale document references `?rev=<hash>` bundle URLs, and DSH answers a
+ * stale rev with 404 — the app then boots into "Failed to load plugins" (a blank
+ * white page on mobile Safari) until the site data is cleared. Measured
+ * 2026-10-07: rewriting every `rev` in the served index to a dead value produced
+ * three 404s on `/plugins/` and an app that never mounted.
+ *
+ * Only applied when the response is HTML and the upstream set no cache policy,
+ * so an explicit upstream directive is never overridden.
+ *
+ * @param headers - the outgoing response headers.
+ * @returns the same headers, or a copy carrying `cache-control: no-store`.
+ */
+export function withDocumentNoStore(headers: OutgoingHttpHeaders): OutgoingHttpHeaders {
+  const hasPolicy = Object.keys(headers).some(name => name.toLowerCase() === 'cache-control')
+  if (hasPolicy) return headers
+  const entry = Object.entries(headers).find(([name]) => name.toLowerCase() === 'content-type')
+  const raw = entry?.[1]
+  const text = Array.isArray(raw) ? raw.join(',') : raw
+  if (typeof text !== 'string' || !text.toLowerCase().includes('text/html')) return headers
+  return { ...headers, 'cache-control': 'no-store' }
+}
+
 export function buildUpgradeResponseHead(
   headers: IncomingHttpHeaders,
   statusCode: number,
