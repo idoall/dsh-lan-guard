@@ -1171,6 +1171,38 @@ describe('injectMobileTurnRail', () => {
     }
   })
 
+  it('reuses a confirmed summary immediately when a fast scrub revisits that turn', () => {
+    vi.useFakeTimers()
+    try {
+      const env = turnRailEnv({
+        nav: 'visible',
+        preview: { prompt: '第一轮问题', reply: '第一轮摘要' },
+        previewByMark: {
+          '跳转到第 2 轮': { prompt: '第二轮问题', reply: '第二轮摘要' },
+        },
+        previewDelayMs: 150,
+      })
+      installTurnRail(env)
+      const first = env.marks[0]!
+      const second = env.marks[1]!
+      env.dispatch('pointerdown', { target: first, clientY: first.top + 5, pointerId: 62 })
+      vi.advanceTimersByTime(400)
+      env.dispatch('pointermove', { target: first, clientY: second.top + 5, pointerId: 62, preventDefault() {} })
+      vi.advanceTimersByTime(220)
+      expect(env.cardParts()?.title?.textContent).toBe('第二轮问题')
+
+      // Leave turn 2, then come straight back. The per-mark cache must avoid
+      // another loading card / blank excerpt for an already confirmed turn.
+      env.dispatch('pointermove', { target: second, clientY: first.top + 5, pointerId: 62, preventDefault() {} })
+      env.dispatch('pointermove', { target: first, clientY: second.top + 5, pointerId: 62, preventDefault() {} })
+      expect(env.cardParts()?.title?.textContent).toBe('第二轮问题')
+      expect(env.cardParts()?.body?.textContent).toBe('第二轮摘要')
+      expect(env.cardParts()?.body?.style.display).toBe('block')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('auto-scrolls the virtual rail while a held finger rests at its edge', () => {
     vi.useFakeTimers()
     try {

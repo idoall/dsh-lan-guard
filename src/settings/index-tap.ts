@@ -311,8 +311,8 @@ export function mobileTurnRailTouchScript(): string {
   // React may commit the official tooltip after several frames on iOS while a
   // finger is moving continuously. Observe that DOM instead of assuming two
   // animation frames are enough, and keep a small bounded polling fallback.
-  var tipObserver=null,navObserver=null,markObserver=null,tipNode=null,tipPoll=0;
-  var tipBaseline="",tipGeneration=0;
+  var tipObserver=null,navObserver=null,markObserver=null,tipNode=null,tipPoll=0,settleTimer=0;
+  var tipBaseline="",tipGeneration=0,tipCache={},cacheNav=null;
   function one(sel,root){try{return (root||doc).querySelector(sel)}catch(e){return null}}
   function navOf(node){try{return node&&node.closest?node.closest(SEL):null}catch(e){return null}}
   // Official TurnNavigator marks carry data-index; card controls do not.
@@ -367,7 +367,7 @@ export function mobileTurnRailTouchScript(): string {
     });
   }
   function hide(){
-    armed=false;scrubbing=false;dragScrolling=false;clearTimeout(timer);stopAuto();release();clearTipWatch();tipBaseline="";mark=null;
+    armed=false;scrubbing=false;dragScrolling=false;clearTimeout(timer);stopAuto();release();clearTipWatch();tipBaseline="";tipCache={};cacheNav=null;mark=null;
     if(card)card.style.display="none";
     try{if(nav)nav.removeAttribute("data-lg-turn-card")}catch(e){}
   }
@@ -412,6 +412,7 @@ export function mobileTurnRailTouchScript(): string {
   }
   function clearTipWatch(){
     if(tipPoll){clearTimeout(tipPoll);tipPoll=0}
+    if(settleTimer){clearTimeout(settleTimer);settleTimer=0}
     try{if(tipObserver)tipObserver.disconnect()}catch(e){}
     try{if(navObserver)navObserver.disconnect()}catch(e){}
     try{if(markObserver)markObserver.disconnect()}catch(e){}
@@ -426,6 +427,17 @@ export function mobileTurnRailTouchScript(): string {
     return {prompt:prompt,reply:reply,tip:tip};
   }
   function tipKey(text){return (text.prompt||"")+"\\n"+(text.reply||"")}
+  function cacheKey(node){
+    try{return node.getAttribute("data-index")||node.getAttribute("aria-label")||""}catch(e){return ""}
+  }
+  function cachedTip(node){
+    var key=cacheKey(node);
+    return key&&tipCache[key]?tipCache[key]:null;
+  }
+  function storeTip(node,text){
+    var key=cacheKey(node);
+    if(key&&(text.prompt||text.reply))tipCache[key]={prompt:text.prompt,reply:text.reply};
+  }
   function signalPreview(node){
     if(!node)return;
     try{
@@ -448,14 +460,18 @@ export function mobileTurnRailTouchScript(): string {
   /** Render the current mark. A pending tooltip must never show an old turn's text. */
   function paint(includeTip,allowSame){
     if(!card||!mark)return;
-    var label="",prompt="",reply="",ready=false;
+    var label="",prompt="",reply="",ready=false,cached=cachedTip(mark);
     try{label=mark.getAttribute("aria-label")||""}catch(e){}
     if(includeTip&&previewReady(mark)){
       var text=readTip(),key=tipKey(text);
       if((text.prompt||text.reply)&&(allowSame||key!==tipBaseline)){
-        prompt=text.prompt;reply=text.reply;ready=true;
+        storeTip(mark,text);prompt=text.prompt;reply=text.reply;ready=true;
       }
     }
+    // A previously confirmed summary belongs to this exact rail mark, so it is
+    // safe to show immediately when a fast drag revisits it. Never reuse a
+    // previous mark's text: cache is keyed by data-index and cleared on close.
+    if(!ready&&cached){prompt=cached.prompt;reply=cached.reply;ready=true}
     // aria-label belongs to the CTA only. It is not a summary, so never use it
     // as the floating title: that caused the visible "Jump to turn 75" duplicate.
     titleEl.textContent=ready?(prompt||"本轮对话"):'正在读取本轮摘要…';
@@ -490,9 +506,10 @@ export function mobileTurnRailTouchScript(): string {
       // If two turns genuinely share identical text, accept it after a short
       // grace period rather than leaving the card pending forever.
       refresh(tries>=7);
-      // About 1.8 seconds: enough for a coalesced WebKit React commit, bounded
-      // so a card left open never keeps a background timer alive.
-      if(++tries<40)tipPoll=setTimeout(retry,45);
+      // About 3.6 seconds: enough for an unloaded historical turn plus a
+      // coalesced WebKit React commit, still bounded so an open card cannot keep
+      // a permanent background timer alive.
+      if(++tries<80)tipPoll=setTimeout(retry,45);
     }
     if(nav&&typeof S.MutationObserver==="function"){
       try{
@@ -608,6 +625,7 @@ export function mobileTurnRailTouchScript(): string {
   function open(node,ev){
     nav=navOf(node)||nav;
     if(!nav)return;
+    if(cacheNav!==nav){cacheNav=nav;tipCache={}}
     armed=false;scrubbing=true;dragScrolling=false;
     lastY=typeof ev.clientY==="number"?ev.clientY:armY;
     build();previewMark(node);capture(node,ev);
@@ -654,6 +672,14 @@ export function mobileTurnRailTouchScript(): string {
       if(pointerId!==null&&typeof ev.pointerId==="number"&&ev.pointerId!==pointerId)return;
       clearTimeout(timer);
       if(scrubbing||dragScrolling)swallowNextClick();
+      // One final PC-style signal after the finger settles gives a coalesced
+      // WebKit preview commit a stable target instead of another moving mark.
+      if(scrubbing&&mark){
+        signalPreview(mark);
+        settleTimer=setTimeout(function(){
+          if(card&&card.style.display!=="none"&&mark)signalPreview(mark);
+        },120);
+      }
       armed=false;scrubbing=false;dragScrolling=false;stopAuto();release();
     }catch(e){}
   }
@@ -804,7 +830,7 @@ export function mobileTurnRailScript(): string {
     + '+"nav[aria-label=\\"轮次导航\\"] button[data-index]::before,'
     + 'nav[aria-label=\\"Turn navigation\\"] button[data-index]::before{height:3px!important}"'
     + '+"nav[aria-label=\\"轮次导航\\"][data-lg-turn-card] [role=\\"tooltip\\"],'
-    + 'nav[aria-label=\\"Turn navigation\\"][data-lg-turn-card] [role=\\"tooltip\\"]{display:none!important}"'
+    + 'nav[aria-label=\\"Turn navigation\\"][data-lg-turn-card] [role=\\"tooltip\\"]{visibility:hidden!important;opacity:0!important;pointer-events:none!important}"'
     // While the card is open the official component marks the hovered tick with
     // its `markPreview` class, whose resting style is a 0.9-scale grey hairline —
     // invisible under a finger. Promote it to a full-length brand-coloured bar so
