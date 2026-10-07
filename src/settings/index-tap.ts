@@ -285,12 +285,12 @@ export const TURN_RAIL_CARD_ID = 'lg-turn-card'
  * - a plain tap still does exactly what it did (the official click navigates);
  * - holding a mark for ~320ms opens a readable card with that turn's own
  *   preview text (prompt + response), pulled from the official component by
- *   focusing the mark — which is precisely what hovering does on the desktop,
- *   only it survives the finger lifting;
- * - the card carries ◀ / ▶ steppers and one big jump button, so the turn you
- *   want never depends on hitting a 10px tick;
- * - dragging (which scrolls the rail natively, `touch-action: pan-y`) or moving
- *   more than 12px cancels the long press, so scrolling is untouched;
+ *   dispatching its own pointermove signal — the same signal desktop hover uses;
+ * - once the hold has entered scrub mode, sliding up/down continuously selects
+ *   the mark under the finger and refreshes the card, like desktop hover;
+ *   lingering at either rail edge auto-scrolls through virtualised marks;
+ * - a quick drag before the hold timer expires manually scrolls the rail, so
+ *   ordinary rail scrolling remains available while the scrub gesture owns touch;
  * - the click that a held touch still emits is swallowed once, so holding never
  *   navigates by accident.
  *
@@ -306,7 +306,8 @@ export function mobileTurnRailTouchScript(): string {
   if(!(S.matchMedia&&S.matchMedia('(pointer: coarse)').matches))return;
   var CARD_ID="${TURN_RAIL_CARD_ID}";
   var card=null,titleEl=null,bodyEl=null,jumpEl=null,prevEl=null,nextEl=null,closeEl=null;
-  var nav=null,mark=null,armed=false,armY=0,timer=0,lastY=0;
+  var nav=null,mark=null,armed=false,scrubbing=false,dragScrolling=false;
+  var armY=0,lastY=0,timer=0,pointerId=null,captureNode=null,scrubDir=0,scrubRaf=0;
   function one(sel,root){try{return (root||doc).querySelector(sel)}catch(e){return null}}
   function navOf(node){try{return node&&node.closest?node.closest(SEL):null}catch(e){return null}}
   // Official TurnNavigator marks carry data-index; card controls do not.
@@ -361,7 +362,7 @@ export function mobileTurnRailTouchScript(): string {
     });
   }
   function hide(){
-    armed=false;mark=null;
+    armed=false;scrubbing=false;dragScrolling=false;clearTimeout(timer);stopAuto();release();mark=null;
     if(card)card.style.display="none";
     try{if(nav)nav.removeAttribute("data-lg-turn-card")}catch(e){}
   }
@@ -452,6 +453,56 @@ export function mobileTurnRailTouchScript(): string {
       previewMark(dir<0?l2[l2.length-1]:l2[0]);
     })}catch(e){}}
   }
+  function railScroller(){return nav?nav.firstElementChild:null}
+  function markAt(y){
+    var all=marks(),best=null,distance=Infinity,i=0;
+    for(i=0;i<all.length;i++){
+      var r=all[i].getBoundingClientRect();
+      if(y>=r.top&&y<=r.bottom)return all[i];
+      var d=Math.abs(y-(r.top+r.bottom)/2);
+      if(d<distance){distance=d;best=all[i]}
+    }
+    return best;
+  }
+  function scrollRail(delta){
+    var sc=railScroller();
+    if(!sc)return;
+    sc.scrollTop=Math.max(0,(sc.scrollTop||0)+delta);
+  }
+  function capture(node,ev){
+    captureNode=node;
+    pointerId=typeof ev.pointerId==="number"?ev.pointerId:null;
+    try{if(pointerId!==null&&typeof node.setPointerCapture==="function")node.setPointerCapture(pointerId)}catch(e){}
+  }
+  function release(){
+    try{if(captureNode&&pointerId!==null&&typeof captureNode.releasePointerCapture==="function")captureNode.releasePointerCapture(pointerId)}catch(e){}
+    captureNode=null;pointerId=null;
+  }
+  function stopAuto(){
+    scrubDir=0;
+    if(scrubRaf){clearTimeout(scrubRaf);scrubRaf=0}
+  }
+  function autoScroll(){
+    if(!scrubbing||!scrubDir){scrubRaf=0;return}
+    var sc=railScroller();
+    if(sc){
+      var before=sc.scrollTop||0;
+      sc.scrollTop=Math.max(0,before+scrubDir*10);
+      if((sc.scrollTop||0)===before){stopAuto();return}
+      var next=markAt(lastY);
+      if(next&&next!==mark)previewMark(next);
+    }
+    scrubRaf=setTimeout(autoScroll,16)
+  }
+  function updateAuto(y){
+    if(!nav)return;
+    var r=nav.getBoundingClientRect(),edge=30,dir=0;
+    if(y<r.top+edge)dir=-1;
+    else if(y>r.bottom-edge)dir=1;
+    if(dir===scrubDir)return;
+    stopAuto();scrubDir=dir;
+    if(dir)scrubRaf=setTimeout(autoScroll,16)
+  }
   function swallowNextClick(){
     var handler=function(ev){
       try{if(card&&card.contains(ev.target))return}catch(e){}
@@ -461,14 +512,13 @@ export function mobileTurnRailTouchScript(): string {
     try{doc.addEventListener("click",handler,true)}catch(e){}
     setTimeout(function(){try{doc.removeEventListener("click",handler,true)}catch(e){}},900);
   }
-  function open(node){
+  function open(node,ev){
     nav=navOf(node)||nav;
     if(!nav)return;
-    lastY=armY;
-    build();
-    previewMark(node);
-    swallowNextClick();
-    log("turn preview: "+(node.getAttribute("aria-label")||""));
+    armed=false;scrubbing=true;dragScrolling=false;
+    lastY=typeof ev.clientY==="number"?ev.clientY:armY;
+    build();previewMark(node);capture(node,ev);
+    log("turn scrub start: "+(node.getAttribute("aria-label")||""));
   }
   function onDown(ev){
     try{
@@ -477,26 +527,51 @@ export function mobileTurnRailTouchScript(): string {
       // Card controls live inside nav for stable iOS positioning; they are not
       // rail marks and must keep their ordinary click behaviour.
       if(card&&card.contains(node))return;
-      if(!node||node.tagName!=="BUTTON")return;
+      if(!node||node.tagName!=="BUTTON"||node.getAttribute("data-index")===null)return;
       var found=navOf(node);
       if(!found)return;
-      nav=found;armed=true;armY=ev.clientY;lastY=ev.clientY;
+      nav=found;armed=true;scrubbing=false;dragScrolling=false;
+      armY=ev.clientY;lastY=ev.clientY;capture(node,ev);
       clearTimeout(timer);
-      timer=setTimeout(function(){if(!armed)return;armed=false;open(node)},320);
+      timer=setTimeout(function(){if(!armed)return;open(node,ev)},320);
     }catch(e){}
   }
   function onMove(ev){
     try{
-      if(!armed)return;
-      if(Math.abs(ev.clientY-armY)>16){armed=false;clearTimeout(timer)}
+      if(pointerId!==null&&typeof ev.pointerId==="number"&&ev.pointerId!==pointerId)return;
+      var y=ev.clientY;
+      if(armed){
+        if(Math.abs(y-armY)<=16)return;
+        armed=false;dragScrolling=true;clearTimeout(timer);
+      }
+      if(dragScrolling){
+        try{ev.preventDefault()}catch(e){}
+        scrollRail(lastY-y);lastY=y;return;
+      }
+      if(!scrubbing)return;
+      try{ev.preventDefault()}catch(e){}
+      lastY=y;
+      var next=markAt(y);
+      if(next&&next!==mark)previewMark(next);
+      updateAuto(y);
     }catch(e){}
   }
-  function cancel(){armed=false;clearTimeout(timer)}
+  function finish(ev){
+    try{
+      if(pointerId!==null&&typeof ev.pointerId==="number"&&ev.pointerId!==pointerId)return;
+      clearTimeout(timer);
+      if(scrubbing||dragScrolling)swallowNextClick();
+      armed=false;scrubbing=false;dragScrolling=false;stopAuto();release();
+    }catch(e){}
+  }
+  function cancel(){
+    armed=false;scrubbing=false;dragScrolling=false;clearTimeout(timer);stopAuto();release();
+  }
   doc.addEventListener("pointerdown",onDown,true);
   doc.addEventListener("pointermove",onMove,true);
-  doc.addEventListener("pointerup",cancel,true);
+  doc.addEventListener("pointerup",finish,true);
   doc.addEventListener("pointercancel",cancel,true);
-  log("touch preview layer ready");
+  log("touch preview scrub layer ready");
 })();
 `
 }
@@ -525,14 +600,17 @@ export function mobileTurnRailTouchScript(): string {
  *   window is never touched;
  * - the selector is attribute-based (`nav[aria-label="轮次导航"]` /
  *   `"Turn navigation"`) plus one structural fallback, because a CSS-module
- *   class name is hashed; both are display-only except the labelled one, which
- *   also nudges the rail into the chat frame's right gutter (`right:2px`,
- *   `width:24px`) so it stops overlapping the message column;
+ *   class name is hashed; the labelled rule nudges the rail into the chat
+ *   frame's right gutter (`right:4px`, `width:28px`) so it does not overlap the
+ *   message column;
  * - it SELF-CHECKS: if the rail is found but stays invisible while the override
  *   is applied, the style is removed again and the page is left byte-identical
  *   to stock (`mobileTurnRail: "reverted"` in the page's patch ledger);
- * - it never touches anything but the rail itself: no inline styles on `html`,
- *   `body` or `#root`, no new buttons, no scroll containers, no listeners.
+ * - its only custom interaction is the coarse-pointer card/scrub layer: it
+ *   listens inside the official rail, sends the same pointermove signal the
+ *   desktop hover handler consumes, and delegates actual navigation back to
+ *   the official mark click. It never adds a second conversation scroller or
+ *   changes `html`, `body`, or `#root`.
  *
  * Known limit: the rail's mark pitch is fixed at 10px in JavaScript
  * (`TURN_SPACING_PX`, `measureElement: () => 10`), so CSS cannot grow the 28×10px
@@ -575,7 +653,7 @@ export function mobileTurnRailScript(): string {
     // (28px at right:4px) and trades the last 2px for a wider target. The tick
     // grows 2px -> 3px because a hairline is unreadable on a phone.
     + '+"{display:block!important;right:4px!important;width:28px!important;'
-    + 'touch-action:pan-y;-webkit-touch-callout:none}"'
+    + 'touch-action:none;-webkit-touch-callout:none}"'
     + '+"nav[aria-label=\\"轮次导航\\"] button::before,nav[aria-label=\\"Turn navigation\\"] button::before{height:3px!important}"'
     + '+"nav[aria-label=\\"轮次导航\\"][data-lg-turn-card] [role=\\"tooltip\\"],'
     + 'nav[aria-label=\\"Turn navigation\\"][data-lg-turn-card] [role=\\"tooltip\\"]{display:none!important}"'
