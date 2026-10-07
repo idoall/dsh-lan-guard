@@ -153,6 +153,7 @@ Current version: plugin **`0.7.0`**, compatible with DeepSeek Harness **`0.2.1-a
 | Plugin | Verified DeepSeek Harness | What this version is |
 | --- | --- | --- |
 | **`0.7.0`** | **`0.2.1-alpha.1`**, `0.2.0-rc.2`, `0.2.0-rc.1`, `0.1.7-rc.2` | The phone turn rail finally works: no more drifting card, and previews follow your finger while you hold and slide (off by default). Blank pages after a restart are fixed too. |
+| **`0.6.0`** | **`0.2.1-alpha.1`**, **`0.2.0-rc.2`**, `0.2.0-rc.1`, `0.1.7-rc.2` | Fixed "you can see the rail but not its content" on a phone: holding a tick for ~0.3s now opens a card with that turn's prompt and reply. |
 | **`0.5.0`** | **`0.2.1-alpha.1`**, **`0.2.0-rc.2`**, `0.2.0-rc.1`, `0.1.7-rc.2` | Keeps up with the new DSH release (declaration only) and adds the phone turn rail, off by default. |
 | **`0.4.6`** | **`0.2.0-rc.2`**, **`0.2.0-rc.1`**, `0.1.7-rc.2` | Keeps up with DSH 0.2.0-rc.2: declaration only, plus confirmation that the old mobile scroll compensation is no longer needed. |
 | **`0.4.5`** | **`0.2.0-rc.1`**, `0.1.7-rc.2` | Fixes long sessions that still would not scroll when the transcript hydrated a beat late and the fix stopped early. |
