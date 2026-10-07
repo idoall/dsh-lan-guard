@@ -15,6 +15,7 @@ import {
   buildUpstreamResponseHeaders,
   isUpgradeRequest,
   normalizeRequestTarget,
+  withDocumentNoStore,
 } from '../src/headers.ts'
 
 const AUTHORITY = '127.0.0.1:3080'
@@ -220,6 +221,37 @@ describe('buildUpstreamResponseHeaders', () => {
     ])
     expect(JSON.stringify(headers)).not.toContain('dsh-auth-abc')
     expect(JSON.stringify(headers)).not.toContain('tracker')
+  })
+})
+
+describe('withDocumentNoStore', () => {
+  // A restarted `dsh web` mints new bundle revs. If a browser reuses the document
+  // it rendered before the restart, every `?rev=` URL 404s and the app boots into
+  // "Failed to load plugins" (a blank page on mobile Safari) until site data is
+  // cleared. DSH ships no cache policy on the index, so the proxy adds one.
+  it('makes an HTML document uncacheable when upstream sends no policy', () => {
+    const headers = withDocumentNoStore({ 'content-type': 'text/html; charset=utf-8' })
+    expect(headers['cache-control']).toBe('no-store')
+  })
+
+  it('leaves an explicit upstream policy alone', () => {
+    const headers = withDocumentNoStore({
+      'content-type': 'text/html',
+      'cache-control': 'public, max-age=60',
+    })
+    expect(headers['cache-control']).toBe('public, max-age=60')
+  })
+
+  it('never touches non-document responses, so bundles stay cacheable', () => {
+    for (const type of ['application/javascript', 'application/json', 'text/css', undefined]) {
+      const headers = withDocumentNoStore(type === undefined ? {} : { 'content-type': type })
+      expect(headers['cache-control']).toBeUndefined()
+    }
+  })
+
+  it('matches the content type case-insensitively and skips duplicate keys', () => {
+    const headers = withDocumentNoStore({ 'Content-Type': 'TEXT/HTML' })
+    expect(headers['cache-control']).toBe('no-store')
   })
 })
 

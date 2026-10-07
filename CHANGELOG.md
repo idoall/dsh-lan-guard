@@ -1,5 +1,104 @@
 # Changelog
 
+## [0.7.0] — 2026-10-07（手机端轮次浮轨：修掉 iPhone Chrome 错位，并做出 PC 同款「按住后滑动连续预览」）
+
+三件事，都只围绕 `mobileTurnRail`（默认关），不动官方逻辑：
+
+### 一、修掉 iPhone Chrome 上卡片错位到左上角
+
+**用户真机反馈**（iPhone 16 Pro Max / Chrome）：卡片刷新后会错位到左上角、文字看不清。这条不是本机 Chromium 能复现的——它属于 WebKit 的 coordinate space 行为。
+
+**两条真凶，逐条排除**：
+
+| 根因 | 修法 |
+| --- | --- |
+| 为取官方预览文本调用了 `mark.focus({preventScroll:true})`；Chromium 遵守 `preventScroll`，但 iOS Chrome 是 WebKit，可能仍把右边缘的已聚焦按钮滚进可视区，视觉视口右移后左边看起来出屏 | 官方 `onPointerMove` 本来就能生成同一份预览，改为**派发 bubbling `pointermove`**，彻底去掉 `focus()` 路径 |
+| 卡片是挂在 `document.body` 上的 `position:fixed` 浮层，WebKit 可能对它选错 visual/layout viewport 坐标系 | 卡片改为**直接挂进官方轨道 `nav`**，`position:absolute; right:calc(100% + 8px)` 从轨道左侧展开；宽度按「轨道左缘到屏幕左侧」的真实空间限制，长英文按钮 `min-width:0` + 省略号，不再撑宽卡片 |
+
+同时把刻度筛选收紧为 `button[data-index]`——卡片自己的 ◀▶/跳转按钮不再混进官方逐轮计算。
+
+### 二、新增「按住后上下滑动 = 连续预览」（对齐 PC hover）
+
+旧实现只能长按定格一格、再用 ◀▶ 微调；用户要求的是 PC 那种「鼠标划过每一轮就看到那一轮的简介」。现在手势约定完整为：
+
+| 手势 | 行为 |
+| --- | --- |
+| 轻点刻度 | 跳转（与官方一致，未改） |
+| **0.3 秒内快速拖动** | 普通滚动轨道（scrub 需要独占 `touch-action`，这条改为自己实现，行为等价） |
+| **长按 0.3 秒后上下滑动** | 手指滑到哪个刻度，卡片**立即换成那一轮的提问 + 回复摘要**，不触发跳转 |
+| 停在轨道上/下边缘 30px 内 | 按 16ms 步进**自动卷动**虚拟轨道，可一直扫下去 |
+| 松手 | 卡片保留供阅读，并吞掉长按补发的那次 click |
+
+实现上：`touch-action:none` 由这一层独占（否则 WebKit 会中途把手势交还页面滚动）、`setPointerCapture` 绑定本次手势、`pointerup/cancel` 统一清理；预览文本仍取自官方 tooltip，没有重复实现导航。
+
+**手指下那一格要看得见**：官方对 hover 中的刻度只给 0.9 倍、灰色、半透明的细线（`.markPreview`），手指压着根本看不出来——用户真机反馈「能看到提示层是第几轮，但右侧的滑块不跟着动」。因此卡片打开期间（`nav[data-lg-turn-card]`）把该刻度提升为**满长品牌蓝条**（`scaleX(1)` + `--dsw-alias-state-business-primary`），而官方那根表示「会话当前在哪一轮」的黑条保持不变——一个是"手指选中的轮次"，一个是"会话当前轮次"，两者可区分。实测稳定帧：预览刻度 `scaleX(1)` / `rgb(65,118,230)`，当前轮次 `rgb(15,17,21)`。
+
+### 三、修掉「重启后手机白屏」
+
+**用户真机反馈**：重启 dsh web 后手机打开是白屏。
+
+**根因（实测复现）**：DSH 的首页响应**没有任何缓存头**（无 `cache-control` / `etag` / `last-modified`），浏览器可以复用重启前渲染的文档；而那份文档里的 bundle 地址带 `?rev=<哈希>`，重启后哈希变了，DSH 对过期 rev 一律 404。于是一次 `dsh web` 重启就可能让手机停留在白屏，直到清掉站点数据。
+
+复现实验：把服务端首页里所有 `rev=` 改成一个死值 → `/plugins/` 出现 3 次 404，App 完全挂载不起来（Chromium 显示 "Failed to load plugins"；移动端 Safari 表现为白屏）。
+
+**改法**：代理在转发时给 **HTML 文档**补 `cache-control: no-store`（`withDocumentNoStore`）——仅在响应是 HTML 且上游没有给缓存策略时生效，bundle 等非文档响应一律不动，因此不会伤害静态资源缓存。
+
+### 四、修掉「拖动触发上传文件」
+
+**用户真机反馈**：手机上拖动会触发上传文件的功能。
+
+**机制**：DSH 的附件视图在 document 上监听拖拽，只要拖拽数据里带 `Files` 就激活（`ui-attachment/src/client/drop-events.ts`）——也就是说，**只要轨道上能起一次原生拖拽**，松手时就可能变成一次文件投放。而 iOS 在起原生手势（选择 / 系统拖拽）时会用 `pointercancel` 收走指针流，我们原先只在 `pointerup` 分支吞掉后续 click，**被 cancel 的这次手势不会吞**，那次 click 就落到手指下面（例如输入区的附件按钮）——看起来就是"拖动触发了上传"。
+
+**改法（三处一起，缺一不可）**：
+1. 轨道及其子元素 CSS 加 `-webkit-user-drag:none; user-select:none; -webkit-user-select:none`，并且原来就有 `touch-action:none`、`-webkit-touch-callout:none`；
+2. 新增捕获阶段 `dragstart` / `selectstart` 拦截：**只有**起点在轨道内的才 `preventDefault` + `stopPropagation`，正文里的正常选择与拖拽不受影响；
+3. `pointercancel` 现在与 `pointerup` 一样吞掉这次手势的尾随 click（普通轻点没有拖拽状态，因此绝不被吞）。
+
+### 五、修掉「只能滑两下，再滑整个页面跟着拖动 / 触发刷新」
+
+**用户真机反馈**：上传问题没了，但**只能滑动两下**，继续滑就整页跟着拖，甚至刷新整个页面。
+
+**根因**：`touch-action:none` 原先只写在 `nav`（轨道）上，而手指实际落在 `nav` 的**子元素**（刻度按钮，`touch-action:auto`）上；官方 CSS 在轨道内部**没有任何 `touch-action`**（只有 `overscroll-behavior: contain`）。WebKit 便从那个子元素解析手势，手指滑过约 20px（正好 ≈ 两格）后把垂直拖拽判给页面 → 页面被拖动 → 到顶再下拉就是**下拉刷新**（整页重载）。这也解释了"只能滑两下"的滑程。
+
+**改法（三层，逐层收口）**：
+1. `touch-action:none!important` 从 `nav` 覆盖到**整棵子树** `nav[…] *`，任何后代都不能再把垂直手势让给页面；轨道自身同时 `overscroll-behavior: contain!important`；
+2. 手势期间改用**非被动 `touchmove`** 监听（`{capture:true,passive:false}`），只要本次手势是从轨道上起（`armed / scrubbing / dragScrolling` 且触点在轨道内）就 `preventDefault()`；**多指触摸放行**（不影响缩放），轨道之外的触摸一律不碰；
+3. 移动端 `html,body{overscroll-behavior-y:none}`——即使还有过冲，也不再触发下拉刷新整页重载。
+
+实测（服务端原样页面）：把注入脚本打进真实页面后逐个元素读计算样式，刻度按钮 / 内层 span / 滚动层全部 `touch-action: none` + `overscroll-behavior: contain`，`html`/`body` 为 `overscroll-behavior-y: none`。
+
+### 六、修掉「蓝色跳转按钮变了，浮窗标题/内容却不变」
+
+**用户真机反馈**：按住拖动时，蓝色「加载并跳转到第 N 轮」按钮会变，说明命中的刻度已经切换；但浮窗标题与回复摘要仍停在上一轮。
+
+**根因**：蓝色按钮直接读当前刻度的 `aria-label`，因此可同步更新；标题/摘要则读官方 React tooltip 的 DOM。连续拖动时，iPhone WebKit 上 React 对 tooltip 的提交可能晚于原先假定的双 `requestAnimationFrame`，脚本重复读到仍挂在 DOM 上的**上一轮 tooltip**，所以按钮与内容脱节。
+
+**改法**：不再赌固定两帧：
+1. 切换新刻度时只更新操作按钮的 `aria-label`，浮窗标题显示「正在读取本轮摘要…」、旧摘要隐藏，绝不把按钮文案或旧轮次内容伪装成简介；
+2. 监听官方 tooltip 的文本/子节点更新（`MutationObserver`），React 一提交即重读标题和摘要；
+3. 同时保留最多约 3.6 秒的有界轮询，覆盖 WebKit 批量提交或替换整个 tooltip 节点的情况；关闭卡片时统一断开 observer / timer；
+4. 本次卡片打开期间按刻度 `data-index` 缓存已确认的标题/摘要，快速回滑到已读过的轮次直接显示；松手后再向最终刻度发送一次稳定预览信号，避免连续手势的最后一次 React 提交被中间刻度覆盖。
+
+浏览器实测未加载的第 60→61 轮：0ms 为等待态，100ms 官方 tooltip 提交后变为「按照建议执行」+ 对应摘要，持续到 3 秒不回退；快速离开再回到第 61 轮立即命中缓存。新增延迟提交与回滑缓存用例；移除 watcher 后延迟提交用例立即变红。
+
+### 七、验证
+
+**服务端原样**（DSH 0.2.1-alpha.1 / iPhone Chrome UA / 440×956 / 经代理 3081，45 格长会话）实测：
+
+| 步骤 | 结果 |
+| --- | --- |
+| 按住刻度 | 卡片出现（`Load and jump to turn 16`） |
+| 按住后滑到中间刻度 | 卡片实时 **第 16 轮 → 第 38 轮**，`transcript scrollTop 14359 → 14359`（**未跳转**） |
+| 手指停在轨道上边缘 | `scrollTop 182 → 0`，卡片一路连扫到**第 1 轮** |
+| 松手 | 卡片保留、仍未跳转 |
+| 0.3 秒内快速向上拖 | 轨道 `scrollTop 0 → 50`（普通滚动），卡片内容不变 |
+| 轻点刻度 | `transcript 14359 → 21`（照旧跳转） |
+| 视口 | `visualViewport 0…440`、`scrollX 0`、文档宽 440、0 报错 |
+
+**先红后绿 + 反证**：新增 4 条用例（长按后连续换摘要、快速拖动滚动轨道、边缘自动卷动、卡片锚定在 nav）在实现前各自失败；随后逐条回退实现确认再次变红，还原后全绿。全套 **376** 项通过。
+
+> 测试踩过的坑（已写入记忆，避免复测误判）：官方轨道的滚动层是 `nav > div[class*="_scroller"]`（`max = scrollHeight - clientHeight`），而会话默认停在最新一轮，**轨道往往已经在最底部**——此时「继续往下滚/向下拖」读数不变，看起来像功能失效。要验证请往**上**滑/往上拖。
+
 ## [0.6.0] — 2026-10-06（手机端轮次导航补上可读提示：按住出卡片）
 
 **用户真机反馈**（iPhone 16 Pro Max / iOS Safari，`0.5.0`）：浮轨能看到了，但「太靠右」且「看不到它提示的内容」——点得到历史、看不到内容。

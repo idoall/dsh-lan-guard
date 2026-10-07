@@ -285,12 +285,12 @@ export const TURN_RAIL_CARD_ID = 'lg-turn-card'
  * - a plain tap still does exactly what it did (the official click navigates);
  * - holding a mark for ~320ms opens a readable card with that turn's own
  *   preview text (prompt + response), pulled from the official component by
- *   focusing the mark — which is precisely what hovering does on the desktop,
- *   only it survives the finger lifting;
- * - the card carries ◀ / ▶ steppers and one big jump button, so the turn you
- *   want never depends on hitting a 10px tick;
- * - dragging (which scrolls the rail natively, `touch-action: pan-y`) or moving
- *   more than 12px cancels the long press, so scrolling is untouched;
+ *   dispatching its own pointermove signal — the same signal desktop hover uses;
+ * - once the hold has entered scrub mode, sliding up/down continuously selects
+ *   the mark under the finger and refreshes the card, like desktop hover;
+ *   lingering at either rail edge auto-scrolls through virtualised marks;
+ * - a quick drag before the hold timer expires manually scrolls the rail, so
+ *   ordinary rail scrolling remains available while the scrub gesture owns touch;
  * - the click that a held touch still emits is swallowed once, so holding never
  *   navigates by accident.
  *
@@ -306,10 +306,17 @@ export function mobileTurnRailTouchScript(): string {
   if(!(S.matchMedia&&S.matchMedia('(pointer: coarse)').matches))return;
   var CARD_ID="${TURN_RAIL_CARD_ID}";
   var card=null,titleEl=null,bodyEl=null,jumpEl=null,prevEl=null,nextEl=null,closeEl=null;
-  var nav=null,mark=null,armed=false,armY=0,timer=0,lastY=0;
+  var nav=null,mark=null,armed=false,scrubbing=false,dragScrolling=false;
+  var armY=0,lastY=0,timer=0,pointerId=null,captureNode=null,scrubDir=0,scrubRaf=0;
+  // React may commit the official tooltip after several frames on iOS while a
+  // finger is moving continuously. Observe that DOM instead of assuming two
+  // animation frames are enough, and keep a small bounded polling fallback.
+  var tipObserver=null,navObserver=null,markObserver=null,tipNode=null,tipPoll=0,settleTimer=0;
+  var tipBaseline="",tipGeneration=0,tipCache={},cacheNav=null;
   function one(sel,root){try{return (root||doc).querySelector(sel)}catch(e){return null}}
   function navOf(node){try{return node&&node.closest?node.closest(SEL):null}catch(e){return null}}
-  function marks(){return nav?nav.querySelectorAll("button"):[]}
+  // Official TurnNavigator marks carry data-index; card controls do not.
+  function marks(){return nav?nav.querySelectorAll("button[data-index]"):[]}
   function el(tag,style,text){
     var node=doc.createElement(tag);
     if(style)node.style.cssText=style;
@@ -321,8 +328,12 @@ export function mobileTurnRailTouchScript(): string {
     +"color:var(--dsw-alias-label-primary,#111);pointer-events:auto;padding:0 10px";
   function build(){
     if(card)return;
-    card=el("div",'position:fixed;left:12px;right:44px;top:76px;z-index:2147483645;display:none;'
-      +"box-sizing:border-box;padding:10px 12px 12px;border-radius:14px;pointer-events:none;"
+    // Anchor in the official rail, not document.body: iOS Chrome/WebKit can
+    // choose a surprising coordinate space for a body-level fixed layer after
+    // an edge gesture. The rail itself is already on-screen, so right:100% is
+    // a stable leftward anchor. Width and top are clamped in placeCard().
+    card=el("div",'position:absolute;right:calc(100% + 8px);top:0;min-width:0;z-index:10;display:none;'
+      +"box-sizing:border-box;max-height:calc(100vh - 24px);overflow-y:auto;padding:10px 12px 12px;border-radius:14px;pointer-events:none;"
       +"background:var(--dsw-alias-bg-layer-1,#fff);color:var(--dsw-alias-label-primary,#111);"
       +"box-shadow:var(--dsw-elevation-panel,0 10px 30px rgba(0,0,0,.22));"
       +"border:.5px solid var(--dsw-alias-border-l2,rgba(0,0,0,.14));"
@@ -339,11 +350,13 @@ export function mobileTurnRailTouchScript(): string {
     var row=el("div","display:flex;gap:8px;margin-top:8px");
     prevEl=el("button",BTN+"flex:none;min-width:44px","◀");
     nextEl=el("button",BTN+"flex:none;min-width:44px","▶");
-    jumpEl=el("button",BTN+"flex:1;background:var(--dsw-alias-state-business-primary,#3964fe);color:#fff");
+    jumpEl=el("button",BTN+"flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:var(--dsw-alias-state-business-primary,#3964fe);color:#fff");
     prevEl.type="button";nextEl.type="button";jumpEl.type="button";
     row.appendChild(prevEl);row.appendChild(jumpEl);row.appendChild(nextEl);
     card.appendChild(head);card.appendChild(bodyEl);card.appendChild(row);
-    (doc.body||doc.documentElement).appendChild(card);
+    // nav is the on-screen official rail. Keeping the card in this local
+    // containing block avoids iOS Chrome's body-level fixed positioning path.
+    if(nav)nav.appendChild(card);else (doc.body||doc.documentElement).appendChild(card);
     closeEl.addEventListener("click",function(ev){ev.stopPropagation();hide()});
     prevEl.addEventListener("click",function(ev){ev.stopPropagation();step(-1)});
     nextEl.addEventListener("click",function(ev){ev.stopPropagation();step(1)});
@@ -354,50 +367,251 @@ export function mobileTurnRailTouchScript(): string {
     });
   }
   function hide(){
-    armed=false;mark=null;
+    armed=false;scrubbing=false;dragScrolling=false;clearTimeout(timer);stopAuto();release();clearTipWatch();tipBaseline="";tipCache={};cacheNav=null;mark=null;
     if(card)card.style.display="none";
     try{if(nav)nav.removeAttribute("data-lg-turn-card")}catch(e){}
   }
   /** The official bubble is what we read; it must not also float under the finger. */
   function own(){try{if(nav)nav.setAttribute("data-lg-turn-card","1")}catch(e){}}
-  function paint(){
-    if(!card||!mark)return;
-    var label="";
-    try{label=mark.getAttribute("aria-label")||""}catch(e){}
-    var tip=nav?one('[role="tooltip"]',nav):null;
-    var prompt="",reply="";
+  /**
+   * Place inside the visible rail's local coordinate system, then clamp vertically
+   * using the card's actual rect. This is intentionally independent of body-level
+   * fixed positioning / visual viewport offsets, which differ in iOS Chrome.
+   */
+  function placeCard(){
+    if(!card||!nav)return;
+    var nr=nav.getBoundingClientRect(),vw=S.innerWidth||320,vh=S.innerHeight||568,safe=12;
+    // right:calc(100% + 8px) means the card's right edge sits 8px left of
+    // the rail. Limit its width so its left edge still has the safe margin.
+    var width=Math.min(320,Math.max(0,nr.left-safe-8));
+    card.style.width=width+"px";
+    var target=lastY<vh*0.45?Math.round(vh*0.45):76;
+    card.style.top=Math.round(target-nr.top)+"px";
+    card.style.transform="translate3d(0,0,0)";
+    try{requestAnimationFrame(fitCard)}catch(e){fitCard()}
+  }
+  function fitCard(){
+    if(!card||card.style.display==="none"||!nav)return;
+    var vh=S.innerHeight||568,safe=12,r=card.getBoundingClientRect(),dy=0;
+    if(r.top<safe)dy=safe-r.top;
+    else if(r.bottom>vh-safe)dy=vh-safe-r.bottom;
+    if(dy){
+      var top=Number.parseFloat(card.style.top)||0;
+      card.style.top=Math.round(top+dy)+"px";
+    }
+  }
+  function previewReady(node){
+    // In the real rail React adds markPreview in the same commit that updates
+    // the tooltip. Do not copy a previous mark's still-mounted tooltip during
+    // the gap. The lightweight fake DOM used by unit tests has no className,
+    // so it is deliberately treated as already committed.
+    try{
+      if(typeof node.className!=="string")return true;
+      return node.className.indexOf("markPreview")>=0||node.getAttribute("aria-current")==="true";
+    }catch(e){return true}
+  }
+  function clearTipWatch(){
+    if(tipPoll){clearTimeout(tipPoll);tipPoll=0}
+    if(settleTimer){clearTimeout(settleTimer);settleTimer=0}
+    try{if(tipObserver)tipObserver.disconnect()}catch(e){}
+    try{if(navObserver)navObserver.disconnect()}catch(e){}
+    try{if(markObserver)markObserver.disconnect()}catch(e){}
+    tipObserver=null;navObserver=null;markObserver=null;tipNode=null;
+  }
+  function readTip(){
+    var prompt="",reply="",tip=nav?one('[role="tooltip"]',nav):null;
     if(tip&&tip.children){
       if(tip.children[0])prompt=tip.children[0].textContent||"";
       if(tip.children[1])reply=tip.children[1].textContent||"";
     }
-    titleEl.textContent=prompt||label||"轮次";
-    bodyEl.textContent=reply;
-    bodyEl.style.display=reply?"block":"none";
+    return {prompt:prompt,reply:reply,tip:tip};
+  }
+  function tipKey(text){return (text.prompt||"")+"\\n"+(text.reply||"")}
+  function cacheKey(node){
+    try{return node.getAttribute("data-index")||node.getAttribute("aria-label")||""}catch(e){return ""}
+  }
+  function cachedTip(node){
+    var key=cacheKey(node);
+    return key&&tipCache[key]?tipCache[key]:null;
+  }
+  function storeTip(node,text){
+    var key=cacheKey(node);
+    if(key&&(text.prompt||text.reply))tipCache[key]={prompt:text.prompt,reply:text.reply};
+  }
+  function signalPreview(node){
+    if(!node)return;
+    try{
+      var r=node.getBoundingClientRect();
+      if(typeof S.PointerEvent==="function"){
+        // pointerover is the PC path that marks the rail as being worked; the
+        // following mouse move is intentionally the same signal DSH uses for
+        // its desktop hover preview, not a synthetic click or navigation.
+        node.dispatchEvent(new S.PointerEvent("pointerover",{
+          bubbles:true,cancelable:false,pointerType:"mouse",clientX:r.left+r.width/2,clientY:r.top+r.height/2
+        }));
+        node.dispatchEvent(new S.PointerEvent("pointermove",{
+          bubbles:true,cancelable:false,pointerType:"mouse",clientX:r.left+r.width/2,clientY:r.top+r.height/2
+        }));
+      }else if(typeof S.Event==="function"){
+        node.dispatchEvent(new S.Event("pointermove",{bubbles:true}));
+      }
+    }catch(e){}
+  }
+  /** Render the current mark. A pending tooltip must never show an old turn's text. */
+  function paint(includeTip,allowSame){
+    if(!card||!mark)return;
+    var label="",prompt="",reply="",ready=false,cached=cachedTip(mark);
+    try{label=mark.getAttribute("aria-label")||""}catch(e){}
+    if(includeTip&&previewReady(mark)){
+      var text=readTip(),key=tipKey(text);
+      if((text.prompt||text.reply)&&(allowSame||key!==tipBaseline)){
+        storeTip(mark,text);prompt=text.prompt;reply=text.reply;ready=true;
+      }
+    }
+    // A previously confirmed summary belongs to this exact rail mark, so it is
+    // safe to show immediately when a fast drag revisits it. Never reuse a
+    // previous mark's text: cache is keyed by data-index and cleared on close.
+    if(!ready&&cached){prompt=cached.prompt;reply=cached.reply;ready=true}
+    // aria-label belongs to the CTA only. It is not a summary, so never use it
+    // as the floating title: that caused the visible "Jump to turn 75" duplicate.
+    titleEl.textContent=ready?(prompt||"本轮对话"):'正在读取本轮摘要…';
+    bodyEl.textContent=ready?reply:"";
+    bodyEl.style.display=ready&&reply?"block":"none";
     jumpEl.textContent=label||"跳转";
-    var vh=S.innerHeight||0;card.style.top=(lastY<vh*0.45?Math.round(vh*0.45):76)+"px";
     card.style.display="block";
+    placeCard();
     own();
   }
-  function focusMark(node){
+  function watchTip(node,generation){
+    clearTipWatch();
+    var tries=0;
+    function live(){return tipGeneration===generation&&mark===node&&card&&card.style.display!=="none"}
+    function refresh(allowSame){if(live())paint(true,allowSame)}
+    function attach(tip){
+      if(tip===tipNode)return;
+      try{if(tipObserver)tipObserver.disconnect()}catch(e){}
+      tipNode=tip;tipObserver=null;
+      if(!tip||typeof S.MutationObserver!=="function")return;
+      try{
+        tipObserver=new S.MutationObserver(function(){refresh(false)});
+        tipObserver.observe(tip,{childList:true,subtree:true,characterData:true});
+      }catch(e){tipObserver=null}
+    }
+    function retry(){
+      if(!live())return;
+      // Re-signal the official PC preview path: on iOS React can coalesce a
+      // burst of touch moves, whereas this current-mark signal is idempotent.
+      signalPreview(node);
+      attach(nav?one('[role="tooltip"]',nav):null);
+      // If two turns genuinely share identical text, accept it after a short
+      // grace period rather than leaving the card pending forever.
+      refresh(tries>=7);
+      // About 3.6 seconds: enough for an unloaded historical turn plus a
+      // coalesced WebKit React commit, still bounded so an open card cannot keep
+      // a permanent background timer alive.
+      if(++tries<80)tipPoll=setTimeout(retry,45);
+    }
+    if(nav&&typeof S.MutationObserver==="function"){
+      try{
+        navObserver=new S.MutationObserver(function(){
+          if(live()){attach(one('[role="tooltip"]',nav));refresh(false)}
+        });
+        // The official tooltip is a direct nav child; do not observe the card
+        // itself or our own title/body writes would create an observer loop.
+        navObserver.observe(nav,{childList:true});
+      }catch(e){navObserver=null}
+      try{
+        markObserver=new S.MutationObserver(function(){refresh(false)});
+        markObserver.observe(node,{attributes:true,attributeFilter:["class","aria-current"]});
+      }catch(e){markObserver=null}
+    }
+    retry();
+  }
+  /**
+   * Ask the OFFICIAL component to render its preview without focusing the mark.
+   *
+   * focus({preventScroll:true}) looks harmless in Chromium, but iOS Chrome
+   * is WebKit: WebKit can still scroll a focused right-edge button into view,
+   * shifting the visual viewport right and leaving the left edge off-screen.
+   * The desktop component already accepts pointermove as its hover signal,
+   * so dispatch that bubbling event instead. It produces the same tooltip text
+   * without asking the browser to move focus or scroll anything into view.
+   */
+  function previewMark(node){
     if(!node)return;
+    // Only a transition from an already-previewed mark has stale text to guard
+    // against. On the first hold there is no older turn, so accept the official
+    // tooltip as soon as React renders it instead of needlessly waiting.
+    tipBaseline=mark?tipKey(readTip()):"";
     mark=node;
-    try{node.focus({preventScroll:true})}catch(e){try{node.focus()}catch(e2){}}
-    paint();
-    // React commits the official tooltip on a later frame; re-read once it has.
-    try{requestAnimationFrame(function(){requestAnimationFrame(function(){
-      if(card&&card.style.display!=="none"&&mark===node)paint()
-    })})}catch(e){}
+    var generation=++tipGeneration;
+    signalPreview(node);
+    // Do not copy the old tooltip while React is between preview commits. The
+    // blue jump button is safe to update immediately because it is this mark's
+    // aria-label; title/body wait for the actual official tooltip update.
+    paint(false,false);
+    watchTip(node,generation);
   }
   function step(dir){
     var all=marks(),i=-1,k=0;
     for(k=0;k<all.length;k++){if(all[k]===mark){i=k;break}}
     var j=i+dir;
-    if(j>=0&&j<all.length){focusMark(all[j]);return}
+    if(j>=0&&j<all.length){previewMark(all[j]);return}
     var sc=nav?nav.firstElementChild:null;
     if(sc){sc.scrollTop+=dir*30;try{requestAnimationFrame(function(){
       var l2=marks();if(!l2.length)return;
-      focusMark(dir<0?l2[l2.length-1]:l2[0]);
+      previewMark(dir<0?l2[l2.length-1]:l2[0]);
     })}catch(e){}}
+  }
+  function railScroller(){return nav?nav.firstElementChild:null}
+  function markAt(y){
+    var all=marks(),best=null,distance=Infinity,i=0;
+    for(i=0;i<all.length;i++){
+      var r=all[i].getBoundingClientRect();
+      if(y>=r.top&&y<=r.bottom)return all[i];
+      var d=Math.abs(y-(r.top+r.bottom)/2);
+      if(d<distance){distance=d;best=all[i]}
+    }
+    return best;
+  }
+  function scrollRail(delta){
+    var sc=railScroller();
+    if(!sc)return;
+    sc.scrollTop=Math.max(0,(sc.scrollTop||0)+delta);
+  }
+  function capture(node,ev){
+    captureNode=node;
+    pointerId=typeof ev.pointerId==="number"?ev.pointerId:null;
+    try{if(pointerId!==null&&typeof node.setPointerCapture==="function")node.setPointerCapture(pointerId)}catch(e){}
+  }
+  function release(){
+    try{if(captureNode&&pointerId!==null&&typeof captureNode.releasePointerCapture==="function")captureNode.releasePointerCapture(pointerId)}catch(e){}
+    captureNode=null;pointerId=null;
+  }
+  function stopAuto(){
+    scrubDir=0;
+    if(scrubRaf){clearTimeout(scrubRaf);scrubRaf=0}
+  }
+  function autoScroll(){
+    if(!scrubbing||!scrubDir){scrubRaf=0;return}
+    var sc=railScroller();
+    if(sc){
+      var before=sc.scrollTop||0;
+      sc.scrollTop=Math.max(0,before+scrubDir*10);
+      if((sc.scrollTop||0)===before){stopAuto();return}
+      var next=markAt(lastY);
+      if(next&&next!==mark)previewMark(next);
+    }
+    scrubRaf=setTimeout(autoScroll,16)
+  }
+  function updateAuto(y){
+    if(!nav)return;
+    var r=nav.getBoundingClientRect(),edge=30,dir=0;
+    if(y<r.top+edge)dir=-1;
+    else if(y>r.bottom-edge)dir=1;
+    if(dir===scrubDir)return;
+    stopAuto();scrubDir=dir;
+    if(dir)scrubRaf=setTimeout(autoScroll,16)
   }
   function swallowNextClick(){
     var handler=function(ev){
@@ -406,41 +620,115 @@ export function mobileTurnRailTouchScript(): string {
       try{doc.removeEventListener("click",handler,true)}catch(e){}
     };
     try{doc.addEventListener("click",handler,true)}catch(e){}
-    setTimeout(function(){try{doc.removeEventListener("click",handler,true)}catch(e){}},900);
+    setTimeout(function(){try{doc.removeEventListener("click",handler,true)}catch(e){}},500);
   }
-  function open(node){
+  function open(node,ev){
     nav=navOf(node)||nav;
     if(!nav)return;
-    lastY=armY;
-    build();
-    focusMark(node);
-    swallowNextClick();
-    log("turn preview: "+(node.getAttribute("aria-label")||""));
+    if(cacheNav!==nav){cacheNav=nav;tipCache={}}
+    armed=false;scrubbing=true;dragScrolling=false;
+    lastY=typeof ev.clientY==="number"?ev.clientY:armY;
+    build();previewMark(node);capture(node,ev);
+    log("turn scrub start: "+(node.getAttribute("aria-label")||""));
   }
   function onDown(ev){
     try{
       if(card&&card.style.display==="block"&&!card.contains(ev.target))hide();
       var node=ev.target;
-      if(!node||node.tagName!=="BUTTON")return;
+      // Card controls live inside nav for stable iOS positioning; they are not
+      // rail marks and must keep their ordinary click behaviour.
+      if(card&&card.contains(node))return;
+      if(!node||node.tagName!=="BUTTON"||node.getAttribute("data-index")===null)return;
       var found=navOf(node);
       if(!found)return;
-      nav=found;armed=true;armY=ev.clientY;lastY=ev.clientY;
+      nav=found;armed=true;scrubbing=false;dragScrolling=false;
+      armY=ev.clientY;lastY=ev.clientY;capture(node,ev);
       clearTimeout(timer);
-      timer=setTimeout(function(){if(!armed)return;armed=false;open(node)},320);
+      timer=setTimeout(function(){if(!armed)return;open(node,ev)},320);
     }catch(e){}
   }
   function onMove(ev){
     try{
-      if(!armed)return;
-      if(Math.abs(ev.clientY-armY)>16){armed=false;clearTimeout(timer)}
+      if(pointerId!==null&&typeof ev.pointerId==="number"&&ev.pointerId!==pointerId)return;
+      var y=ev.clientY;
+      if(armed){
+        if(Math.abs(y-armY)<=16)return;
+        armed=false;dragScrolling=true;clearTimeout(timer);
+      }
+      if(dragScrolling){
+        try{ev.preventDefault()}catch(e){}
+        scrollRail(lastY-y);lastY=y;return;
+      }
+      if(!scrubbing)return;
+      try{ev.preventDefault()}catch(e){}
+      lastY=y;
+      var next=markAt(y);
+      if(next&&next!==mark)previewMark(next);
+      updateAuto(y);
     }catch(e){}
   }
-  function cancel(){armed=false;clearTimeout(timer)}
+  function finish(ev){
+    try{
+      if(pointerId!==null&&typeof ev.pointerId==="number"&&ev.pointerId!==pointerId)return;
+      clearTimeout(timer);
+      if(scrubbing||dragScrolling)swallowNextClick();
+      // One final PC-style signal after the finger settles gives a coalesced
+      // WebKit preview commit a stable target instead of another moving mark.
+      if(scrubbing&&mark){
+        signalPreview(mark);
+        settleTimer=setTimeout(function(){
+          if(card&&card.style.display!=="none"&&mark)signalPreview(mark);
+        },120);
+      }
+      armed=false;scrubbing=false;dragScrolling=false;stopAuto();release();
+    }catch(e){}
+  }
+  function cancel(){
+    // iOS cancels the pointer stream when it decides to run a native gesture
+    // (a text selection or a system drag). The click it then emits still belongs
+    // to the gesture we owned, and it can land on whatever is underneath — on a
+    // phone that is how a drag could reach the composer's attach control. Swallow
+    // it exactly as pointerup does; a plain tap never reaches this branch.
+    if(scrubbing||dragScrolling)swallowNextClick();
+    armed=false;scrubbing=false;dragScrolling=false;clearTimeout(timer);stopAuto();release();
+  }
+  /**
+   * A drag that begins on the rail can end as a file drop somewhere else, and
+   * DSH's attachment view reacts to any drag carrying a Files payload with its upload
+   * affordance. Refuse the drag at its source; events outside the rail are left
+   * alone so normal selection and dragging keep working.
+   */
+  /**
+   * touch-action alone was not enough on WebKit: with the finger on a mark the
+   * browser could still take the vertical drag after its slop threshold, which
+   * pans the page and can fire pull-to-refresh mid-scrub. A non-passive
+   * touchmove listener lets us refuse that outright for the duration of a
+   * gesture that began on the rail. Touches anywhere else are never touched, and
+   * a multi-finger touch is left alone so pinch still works.
+   */
+  function blockTouch(ev){
+    try{
+      if(pointerId===null)return;
+      if(ev.touches&&ev.touches.length>1)return;
+      if(!(armed||scrubbing||dragScrolling))return;
+      if(!navOf(ev.target))return;
+      ev.preventDefault();
+    }catch(e){}
+  }
+  function blockDrag(ev){
+    try{
+      var node=ev.target;
+      if(node&&navOf(node)){ev.preventDefault();ev.stopPropagation()}
+    }catch(e){}
+  }
+  doc.addEventListener("touchmove",blockTouch,{capture:true,passive:false});
+  doc.addEventListener("dragstart",blockDrag,true);
+  doc.addEventListener("selectstart",blockDrag,true);
   doc.addEventListener("pointerdown",onDown,true);
   doc.addEventListener("pointermove",onMove,true);
-  doc.addEventListener("pointerup",cancel,true);
+  doc.addEventListener("pointerup",finish,true);
   doc.addEventListener("pointercancel",cancel,true);
-  log("touch preview layer ready");
+  log("touch preview scrub layer ready");
 })();
 `
 }
@@ -469,14 +757,17 @@ export function mobileTurnRailTouchScript(): string {
  *   window is never touched;
  * - the selector is attribute-based (`nav[aria-label="轮次导航"]` /
  *   `"Turn navigation"`) plus one structural fallback, because a CSS-module
- *   class name is hashed; both are display-only except the labelled one, which
- *   also nudges the rail into the chat frame's right gutter (`right:2px`,
- *   `width:24px`) so it stops overlapping the message column;
+ *   class name is hashed; the labelled rule nudges the rail into the chat
+ *   frame's right gutter (`right:4px`, `width:28px`) so it does not overlap the
+ *   message column;
  * - it SELF-CHECKS: if the rail is found but stays invisible while the override
  *   is applied, the style is removed again and the page is left byte-identical
  *   to stock (`mobileTurnRail: "reverted"` in the page's patch ledger);
- * - it never touches anything but the rail itself: no inline styles on `html`,
- *   `body` or `#root`, no new buttons, no scroll containers, no listeners.
+ * - its only custom interaction is the coarse-pointer card/scrub layer: it
+ *   listens inside the official rail, sends the same pointermove signal the
+ *   desktop hover handler consumes, and delegates actual navigation back to
+ *   the official mark click. It never adds a second conversation scroller or
+ *   changes `html`, `body`, or `#root`.
  *
  * Known limit: the rail's mark pitch is fixed at 10px in JavaScript
  * (`TURN_SPACING_PX`, `measureElement: () => 10`), so CSS cannot grow the 28×10px
@@ -519,10 +810,37 @@ export function mobileTurnRailScript(): string {
     // (28px at right:4px) and trades the last 2px for a wider target. The tick
     // grows 2px -> 3px because a hairline is unreadable on a phone.
     + '+"{display:block!important;right:4px!important;width:28px!important;'
-    + 'touch-action:pan-y;-webkit-touch-callout:none}"'
-    + '+"nav[aria-label=\\"轮次导航\\"] button::before,nav[aria-label=\\"Turn navigation\\"] button::before{height:3px!important}"'
+    + 'touch-action:none!important;-webkit-touch-callout:none;'
+    // A native drag started on the rail can end as a file drop: DSH's attachment
+    // view listens document-wide and activates whenever a drag carries `Files`
+    // (ui-attachment/drop-events.ts). On a phone that surfaces as the upload
+    // affordance appearing mid-gesture, so no drag may begin here.
+    + '-webkit-user-drag:none;user-select:none;-webkit-user-select:none;'
+    + 'overscroll-behavior:contain!important}"'
+    // The finger lands on a MARK, a plain button with touch-action:auto, and
+    // official CSS sets no touch-action anywhere inside the rail. WebKit then
+    // resolves the gesture from that descendant, hands the vertical drag to the
+    // page after a small slop, and the resulting overscroll fires pull-to-refresh
+    // mid-scrub (measured on device: the card advances ~2 ticks, then the whole
+    // page drags/refreshes). Cover the whole subtree, and make the phone stop
+    // treating a downward drag at scrollTop 0 as a reload.
+    + '+"nav[aria-label=\\"轮次导航\\"] *,nav[aria-label=\\"Turn navigation\\"] *'
+    + '{touch-action:none!important;overscroll-behavior:contain!important}"'
+    + '+"html,body{overscroll-behavior-y:none!important}"'
+    + '+"nav[aria-label=\\"轮次导航\\"] button[data-index]::before,'
+    + 'nav[aria-label=\\"Turn navigation\\"] button[data-index]::before{height:3px!important}"'
     + '+"nav[aria-label=\\"轮次导航\\"][data-lg-turn-card] [role=\\"tooltip\\"],'
-    + 'nav[aria-label=\\"Turn navigation\\"][data-lg-turn-card] [role=\\"tooltip\\"]{display:none!important}"'
+    + 'nav[aria-label=\\"Turn navigation\\"][data-lg-turn-card] [role=\\"tooltip\\"]{visibility:hidden!important;opacity:0!important;pointer-events:none!important}"'
+    // While the card is open the official component marks the hovered tick with
+    // its `markPreview` class, whose resting style is a 0.9-scale grey hairline —
+    // invisible under a finger. Promote it to a full-length brand-coloured bar so
+    // the user can SEE the selection follow the drag (the black active tick keeps
+    // showing where the transcript actually is).
+    + '+"nav[aria-label=\\"轮次导航\\"][data-lg-turn-card] button[class*=\\"_markP\\"]::before,'
+    + 'nav[aria-label=\\"Turn navigation\\"][data-lg-turn-card] button[class*=\\"_markP\\"]::before{'
+    + 'transform:translateY(-50%) scaleX(1)!important;'
+    + 'background:var(--dsw-alias-state-business-primary,#3964fe)!important;'
+    + 'opacity:1!important}"'
     // Structural fallback: the chat frame is the div holding both the rail slot
     // and the transcript root; display-only, so a stray match is a no-op.
     + '+"div:has(>div [data-chat-flow])>div>nav{display:block!important}"+"}"));'

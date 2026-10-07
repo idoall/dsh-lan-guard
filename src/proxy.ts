@@ -28,6 +28,7 @@ import {
   authorityOf,
   buildUpstreamRequestHeaders,
   buildUpstreamResponseHeaders,
+  withDocumentNoStore,
   normalizeRequestTarget,
 } from './headers.ts'
 import type { LanGuardLogger } from './log.ts'
@@ -338,7 +339,7 @@ export async function startProxy(options: ProxyOptions): Promise<RunningProxy> {
       res.writeHead(
         status,
         upstreamRes.statusMessage === '' ? undefined : upstreamRes.statusMessage,
-        buildUpstreamResponseHeaders(upstreamRes.headers, RELAY_COOKIE_NAMES),
+        withDocumentNoStore(buildUpstreamResponseHeaders(upstreamRes.headers, RELAY_COOKIE_NAMES)),
       )
       upstreamRes.pipe(res)
     })

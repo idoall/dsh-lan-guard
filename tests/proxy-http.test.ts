@@ -84,6 +84,29 @@ describe('HTTP forwarding', () => {
     expect(upstream.observed.at(-1)?.url).toBe('/api/x?rev=abc&n=1')
   })
 
+  it('adds no-store to an HTML document upstream left uncached, and only to HTML', async () => {
+    // Regression: a document reused across a `dsh web` restart carries dead
+    // `?rev=` bundle URLs, and every /plugins/ request then 404s — the app boots
+    // into "Failed to load plugins", which is a blank page on mobile Safari.
+    const { proxy: running } = await harness({
+      routes: {
+        '/page': (_req, res) => {
+          res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
+          res.end('<html></html>')
+        },
+        '/data.json': (_req, res) => {
+          res.writeHead(200, { 'content-type': 'application/json' })
+          res.end('{}')
+        },
+      },
+    })
+    const page = await requestTo(running.port, { path: '/page' })
+    expect(page.status).toBe(200)
+    expect(page.headers['cache-control']).toBe('no-store')
+    const data = await requestTo(running.port, { path: '/data.json' })
+    expect(data.headers['cache-control']).toBeUndefined()
+  })
+
   it('passes plugin bundles through untouched (document-relative form, no URL rewriting)', async () => {
     const source = 'export const x = "plugins/x";'
     const { fake: upstream, proxy: running } = await harness({

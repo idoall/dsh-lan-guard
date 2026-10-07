@@ -495,12 +495,18 @@ class FakeElement {
   parentNode: FakeElement | null = null
   closestTarget: FakeElement | null = null
   textContent = ''
+  className = ''
   type = ''
   focused = false
+  pointerMoves = 0
   clicked = 0
   display = 'block'
+  left = 343
+  top = 355
   width = 28
   height = 52
+  scrollTop = 0
+  capturedPointer: number | null = null
 
   constructor(readonly tag: string, readonly id = '') {}
 
@@ -520,8 +526,8 @@ class FakeElement {
     child.parentNode = null
   }
 
-  getBoundingClientRect(): { x: number; y: number; width: number; height: number } {
-    return { x: 343, y: 355, width: this.width, height: this.height }
+  getBoundingClientRect(): { x: number; y: number; left: number; top: number; right: number; bottom: number; width: number; height: number } {
+    return { x: this.left, y: this.top, left: this.left, top: this.top, right: this.left + this.width, bottom: this.top + this.height, width: this.width, height: this.height }
   }
 
   get firstElementChild(): FakeElement | null {
@@ -554,6 +560,14 @@ class FakeElement {
     this.focused = true
   }
 
+  setPointerCapture(pointerId: number): void {
+    this.capturedPointer = pointerId
+  }
+
+  releasePointerCapture(pointerId: number): void {
+    if (this.capturedPointer === pointerId) this.capturedPointer = null
+  }
+
   contains(node: unknown): boolean {
     let walk = node as FakeElement | null
     while (walk !== null && walk !== undefined) {
@@ -572,6 +586,12 @@ class FakeElement {
     this.dispatch('click', { target: this, stopPropagation() {}, preventDefault() {} })
   }
 
+  dispatchEvent(event: { type?: unknown }): boolean {
+    if (event.type === 'pointermove') this.pointerMoves += 1
+    if (typeof event.type === 'string') this.dispatch(event.type, event as Record<string, unknown>)
+    return true
+  }
+
   /** Descendant lookup for the two selectors the injected code actually uses. */
   querySelector(selector: string): FakeElement | null {
     return this.querySelectorAll(selector)[0] ?? null
@@ -581,7 +601,8 @@ class FakeElement {
     const out: FakeElement[] = []
     const walk = (node: FakeElement): void => {
       for (const child of node.children) {
-        if (selector === 'button' && child.tag === 'button') out.push(child)
+        if ((selector === 'button' || selector === 'button[data-index]') && child.tag === 'button'
+          && (selector !== 'button[data-index]' || child.attrs['data-index'] !== undefined)) out.push(child)
         if (selector.includes('tooltip') && child.attrs.role === 'tooltip') out.push(child)
         walk(child)
       }
@@ -600,8 +621,12 @@ interface TurnRailEnvOptions {
   nav?: 'absent' | 'hidden' | 'visible'
   /** The rail's marks, by aria-label. Defaults to three loaded turns. */
   marks?: readonly string[]
-  /** Text the official tooltip renders once a mark is focused. */
+  /** Text the official tooltip renders after a mark receives its hover signal. */
   preview?: { prompt: string; reply: string }
+  /** Simulate React committing a different official tooltip after a pointer move. */
+  previewByMark?: Readonly<Record<string, { prompt: string; reply: string }>>
+  /** Delay that simulated React commit; defaults to immediately. */
+  previewDelayMs?: number
   /** Make `document.addEventListener` throw, to prove the rail survives it. */
   brokenListeners?: boolean
 }
@@ -630,10 +655,23 @@ function turnRailEnv(options: TurnRailEnvOptions = {}) {
     nav.display = options.nav === 'hidden' ? 'none' : 'block'
     if (options.nav === 'hidden') { nav.width = 0; nav.height = 0 }
     nav.setAttribute('aria-label', '轮次导航')
+    nav.left = 401
+    nav.top = 355
+    nav.width = 28
+    nav.height = 52
     const scroller = new FakeElement('div')
+    scroller.left = nav.left
+    scroller.top = nav.top
+    scroller.width = nav.width
+    scroller.height = nav.height
     const marksBox = new FakeElement('div')
     for (const label of options.marks ?? ['跳转到第 1 轮', '跳转到第 2 轮', '跳转到第 3 轮']) {
       const mark = new FakeElement('button')
+      mark.left = nav.left
+      mark.top = nav.top + marks.length * 10
+      mark.width = nav.width
+      mark.height = 10
+      mark.setAttribute('data-index', String(marks.length))
       mark.setAttribute('aria-label', label)
       mark.closestTarget = nav
       marks.push(mark)
@@ -651,6 +689,24 @@ function turnRailEnv(options: TurnRailEnvOptions = {}) {
     tooltip.appendChild(prompt)
     tooltip.appendChild(reply)
     nav.appendChild(tooltip)
+    // React owns the real tooltip and may update it after the pointer event has
+    // already returned. Model that delayed commit so the mobile layer cannot
+    // merely assume two animation frames are always enough.
+    for (const mark of marks) {
+      mark.addEventListener('pointermove', () => {
+        const next = options.previewByMark?.[mark.getAttribute('aria-label') ?? '']
+        // React changes markPreview and tooltip contents in the same commit.
+        // A mapped mark deliberately commits late to prove the card waits for
+        // the official DOM instead of displaying the old turn's text.
+        setTimeout(() => {
+          for (const candidate of marks) candidate.className = candidate === mark ? 'markPreview' : ''
+          if (next !== undefined) {
+            prompt.textContent = next.prompt
+            reply.textContent = next.reply
+          }
+        }, next === undefined ? 0 : (options.previewDelayMs ?? 0))
+      })
+    }
   }
   const documentListeners = new Map<string, ((event: Record<string, unknown>) => void)[]>()
   const doc = {
@@ -679,6 +735,14 @@ function turnRailEnv(options: TurnRailEnvOptions = {}) {
       documentListeners.set(type, (documentListeners.get(type) ?? []).filter(entry => entry !== listener))
     },
   }
+  class FakePointerEvent {
+    readonly type: string
+    constructor(type: string, init: Record<string, unknown> = {}) {
+      this.type = type
+      Object.assign(this, init)
+    }
+  }
+  class FakeEvent extends FakePointerEvent {}
   const self = {
     // Two different questions are asked of matchMedia: the width query decides
     // whether the rail override applies, the pointer query whether the phone
@@ -687,6 +751,8 @@ function turnRailEnv(options: TurnRailEnvOptions = {}) {
     matchMedia: (query: string) => ({
       matches: query === '(pointer: coarse)' ? (options.coarse ?? true) : (options.matchMedia ?? true),
     }),
+    PointerEvent: FakePointerEvent,
+    Event: FakeEvent,
   }
   const patches: Record<string, unknown> = {}
   return {
@@ -782,7 +848,26 @@ describe('injectMobileTurnRail', () => {
     // gesture that reads the official tooltip instead of reimplementing it.
     expect(body).toContain(TURN_RAIL_CARD_ID)
     expect(body).toContain('(pointer: coarse)')
-    expect(body).toContain('touch-action:pan-y')
+    // Scrubbing needs continuous pointermove after a hold. The layer owns
+    // touch-action and manually preserves quick-drag rail scrolling.
+    expect(body).toContain('touch-action:none')
+    expect(body).toContain('turn scrub start')
+    expect(body).toContain('button[data-index]')
+    expect(body).toContain('autoScroll')
+    // The hovered tick must be VISIBLE while scrubbing: the official preview
+    // style is a 0.9-scale grey hairline, invisible under a finger.
+    // A native drag begun on the rail can end as a file drop, which DSH answers
+    // with its upload affordance; the rail must not be a drag source at all.
+    expect(body).toContain('-webkit-user-drag:none')
+    // The subtree must carry touch-action too, and the phone must stop treating a
+    // downward drag at the top of the page as a reload.
+    // The escaped selector keeps its quotes, so assert on the rule body only.
+    expect(body).toContain('*{touch-action:none!important')
+    expect(body).toContain('overscroll-behavior-y:none')
+    expect(body).toContain('blockTouch')
+    expect(body).toContain('blockDrag')
+    expect(body).toContain('_markP')
+    expect(body).toContain('--dsw-alias-state-business-primary')
     expect(body).toContain('-webkit-touch-callout:none')
     expect(body).toContain('320')
     expect(body).toContain('pointerdown')
@@ -875,12 +960,19 @@ describe('injectMobileTurnRail', () => {
       vi.advanceTimersByTime(300)
       expect(env.card()).toBeNull()
 
-      vi.advanceTimersByTime(60)
+      // React's markPreview commit and the tooltip watcher may land after the
+      // hold timer itself; wait past one observer fallback interval.
+      vi.advanceTimersByTime(120)
       const parts = env.cardParts()
       expect(parts?.card.style.display).toBe('block')
-      // Focusing the mark is exactly what hovering does on the desktop, and it
-      // is how the official preview text becomes readable here.
-      expect(env.marks[1]?.focused).toBe(true)
+      // The card stays in the official rail's containing block, not a
+      // body-level fixed layer whose viewport coordinates WebKit may reinterpret.
+      expect(parts?.card.parentNode).toBe(env.nav)
+      // The mobile layer sends the same pointermove signal the desktop hover
+      // handler consumes; it must NOT focus the right-edge button (iOS Chrome
+      // can scroll a focused button into view, shifting the visual viewport).
+      expect(env.marks[1]?.pointerMoves).toBeGreaterThan(0)
+      expect(env.marks[1]?.focused).toBe(false)
       expect(parts?.title?.textContent).toBe('预览里的提问')
       expect(parts?.body?.textContent).toBe('预览里的回答')
       expect(parts?.jump?.textContent).toBe('跳转到第 2 轮')
@@ -889,19 +981,133 @@ describe('injectMobileTurnRail', () => {
     }
   })
 
-  it('leaves a drag alone: scrolling the rail must never pop the card', () => {
+  it('refuses a native drag or selection that starts on the rail, and only there', () => {
+    // DSH's attachment view listens document-wide for drags carrying Files and
+    // answers them with its upload affordance, so a drag that begins on the rail
+    // must never become one. Selection and dragging elsewhere are untouched.
     vi.useFakeTimers()
     try {
       const env = turnRailEnv({ nav: 'visible' })
       installTurnRail(env)
-      env.dispatch('pointerdown', { target: env.marks[1], clientY: 5 })
-      env.dispatch('pointermove', { target: env.marks[1], clientY: 40 })
+      const outside = new FakeElement('p')
+      const seen: string[] = []
+      // Label by provenance, not by identity with one particular mark: the rail
+      // case is exercised for more than one tick.
+      const drag = (target: FakeElement) => ({
+        target,
+        preventDefault: () => { seen.push(target === outside ? 'outside-prevented' : 'rail-prevented') },
+        stopPropagation: () => { seen.push(target === outside ? 'outside-stopped' : 'rail-stopped') },
+      })
+
+      env.dispatch('dragstart', drag(env.marks[0] as FakeElement))
+      expect(seen).toEqual(['rail-prevented', 'rail-stopped'])
+
+      // A drag that starts in the transcript must still reach the app.
+      env.dispatch('dragstart', drag(outside))
+      expect(seen).toHaveLength(2)
+
+      env.dispatch('selectstart', drag(env.marks[1] as FakeElement))
+      expect(seen.slice(2)).toEqual(['rail-prevented', 'rail-stopped'])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('quick-dragging the rail scrolls it manually and never opens a card', () => {
+    vi.useFakeTimers()
+    try {
+      const env = turnRailEnv({ nav: 'visible' })
+      installTurnRail(env)
+      const scroller = env.nav?.firstElementChild
+      const stopped: string[] = []
+      const y = env.marks[1]?.top ?? 365
+      env.dispatch('pointerdown', { target: env.marks[1], clientY: y, pointerId: 7 })
+      // Move before 320ms: it is an ordinary rail scroll, not a scrub.
+      env.dispatch('pointermove', {
+        target: env.marks[1], clientY: y - 36, pointerId: 7,
+        preventDefault: () => { stopped.push('prevented') },
+      })
       vi.advanceTimersByTime(2000)
       expect(env.card()).toBeNull()
+      expect(scroller?.scrollTop).toBe(36)
+      expect(stopped).toEqual(['prevented'])
       // And the pointerup that ends a cancelled hold must not arm anything.
-      env.dispatch('pointerup', { target: env.marks[1], clientY: 40 })
+      env.dispatch('pointerup', { target: env.marks[1], clientY: y - 36, pointerId: 7 })
       vi.advanceTimersByTime(2000)
       expect(env.card()).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('refuses page scrolling for a gesture that started on the rail', () => {
+    // touch-action on the nav was not enough on WebKit: the finger lands on a
+    // mark (touch-action:auto, and official CSS sets none inside the rail), so
+    // the browser could still take the vertical drag after its slop and the
+    // overscroll then fired pull-to-refresh mid-scrub. The subtree rule plus a
+    // non-passive touchmove refusal is what keeps the gesture ours.
+    vi.useFakeTimers()
+    try {
+      const env = turnRailEnv({ nav: 'visible' })
+      installTurnRail(env)
+      const outside = new FakeElement('p')
+      const prevented: string[] = []
+      const move = (target: FakeElement, touches = 1) => ({
+        target,
+        touches: Array.from({ length: touches }, () => ({})),
+        preventDefault: () => { prevented.push(target === outside ? 'outside' : 'rail') },
+      })
+
+      // Nothing is armed yet: the layer must not interfere with the page.
+      env.dispatch('touchmove', move(env.marks[0] as FakeElement))
+      expect(prevented).toEqual([])
+
+      env.dispatch('pointerdown', { target: env.marks[0], clientY: 355, pointerId: 51 })
+      env.dispatch('touchmove', move(env.marks[0] as FakeElement))
+      expect(prevented).toEqual(['rail'])
+
+      // A touch elsewhere, or a second finger (pinch), is never touched.
+      env.dispatch('touchmove', move(outside))
+      env.dispatch('touchmove', move(env.marks[1] as FakeElement, 2))
+      expect(prevented).toEqual(['rail'])
+
+      // After the gesture ends the page is free again.
+      env.dispatch('pointerup', { target: env.marks[0], clientY: 355, pointerId: 51 })
+      vi.advanceTimersByTime(600)
+      env.dispatch('touchmove', move(env.marks[0] as FakeElement))
+      expect(prevented).toEqual(['rail'])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('scrubs through turn summaries after the hold without navigating', () => {
+    vi.useFakeTimers()
+    try {
+      const env = turnRailEnv({ nav: 'visible' })
+      installTurnRail(env)
+      const first = env.marks[0]!
+      const third = env.marks[2]!
+      env.dispatch('pointerdown', { target: first, clientY: first.top + 5, pointerId: 19 })
+      vi.advanceTimersByTime(400)
+      expect(env.cardParts()?.jump?.textContent).toBe('跳转到第 1 轮')
+      expect(first.capturedPointer).toBe(19)
+
+      const prevented: string[] = []
+      env.dispatch('pointermove', {
+        target: first, clientY: third.top + 5, pointerId: 19,
+        preventDefault: () => { prevented.push('move') },
+      })
+      // The card changes live as the finger crosses marks; no mark click occurs.
+      expect(third.pointerMoves).toBeGreaterThan(0)
+      expect(env.cardParts()?.jump?.textContent).toBe('跳转到第 3 轮')
+      expect(third.clicked).toBe(0)
+      expect(prevented).toEqual(['move'])
+
+      // Releasing pins the preview for reading and suppresses only the follow-up click.
+      env.dispatch('pointerup', { target: third, clientY: third.top + 5, pointerId: 19 })
+      expect(env.cardParts()?.card.style.display).toBe('block')
+      expect(first.capturedPointer).toBeNull()
     } finally {
       vi.useRealTimers()
     }
@@ -917,11 +1123,103 @@ describe('injectMobileTurnRail', () => {
       expect(env.cardParts()?.jump?.textContent).toBe('跳转到第 1 轮')
 
       env.cardParts()?.next?.click()
-      expect(env.marks[1]?.focused).toBe(true)
+      expect(env.marks[1]?.pointerMoves).toBeGreaterThan(0)
       expect(env.cardParts()?.jump?.textContent).toBe('跳转到第 2 轮')
 
       env.cardParts()?.prev?.click()
       expect(env.cardParts()?.jump?.textContent).toBe('跳转到第 1 轮')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('refreshes the floating prompt and reply when React commits a delayed tooltip', () => {
+    vi.useFakeTimers()
+    try {
+      const env = turnRailEnv({
+        nav: 'visible',
+        preview: { prompt: '第一轮问题', reply: '第一轮摘要' },
+        previewByMark: {
+          '跳转到第 2 轮': { prompt: '第二轮问题', reply: '第二轮摘要' },
+        },
+        // This is deliberately longer than the old double-rAF assumption.
+        previewDelayMs: 150,
+      })
+      installTurnRail(env)
+      const first = env.marks[0]!
+      const second = env.marks[1]!
+      env.dispatch('pointerdown', { target: first, clientY: first.top + 5, pointerId: 61 })
+      vi.advanceTimersByTime(400)
+      expect(env.cardParts()?.title?.textContent).toBe('第一轮问题')
+      expect(env.cardParts()?.body?.textContent).toBe('第一轮摘要')
+
+      env.dispatch('pointermove', {
+        target: first, clientY: second.top + 5, pointerId: 61, preventDefault() {},
+      })
+      // The blue jump button is immediate, but stale prompt/reply must not be
+      // presented as if they belonged to turn 2 while React is still committing.
+      expect(env.cardParts()?.jump?.textContent).toBe('跳转到第 2 轮')
+      expect(env.cardParts()?.title?.textContent).toBe('正在读取本轮摘要…')
+      expect(env.cardParts()?.body?.style.display).toBe('none')
+
+      vi.advanceTimersByTime(220)
+      expect(env.cardParts()?.title?.textContent).toBe('第二轮问题')
+      expect(env.cardParts()?.body?.textContent).toBe('第二轮摘要')
+      expect(env.cardParts()?.body?.style.display).toBe('block')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('reuses a confirmed summary immediately when a fast scrub revisits that turn', () => {
+    vi.useFakeTimers()
+    try {
+      const env = turnRailEnv({
+        nav: 'visible',
+        preview: { prompt: '第一轮问题', reply: '第一轮摘要' },
+        previewByMark: {
+          '跳转到第 2 轮': { prompt: '第二轮问题', reply: '第二轮摘要' },
+        },
+        previewDelayMs: 150,
+      })
+      installTurnRail(env)
+      const first = env.marks[0]!
+      const second = env.marks[1]!
+      env.dispatch('pointerdown', { target: first, clientY: first.top + 5, pointerId: 62 })
+      vi.advanceTimersByTime(400)
+      env.dispatch('pointermove', { target: first, clientY: second.top + 5, pointerId: 62, preventDefault() {} })
+      vi.advanceTimersByTime(220)
+      expect(env.cardParts()?.title?.textContent).toBe('第二轮问题')
+
+      // Leave turn 2, then come straight back. The per-mark cache must avoid
+      // another loading card / blank excerpt for an already confirmed turn.
+      env.dispatch('pointermove', { target: second, clientY: first.top + 5, pointerId: 62, preventDefault() {} })
+      env.dispatch('pointermove', { target: first, clientY: second.top + 5, pointerId: 62, preventDefault() {} })
+      expect(env.cardParts()?.title?.textContent).toBe('第二轮问题')
+      expect(env.cardParts()?.body?.textContent).toBe('第二轮摘要')
+      expect(env.cardParts()?.body?.style.display).toBe('block')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('auto-scrolls the virtual rail while a held finger rests at its edge', () => {
+    vi.useFakeTimers()
+    try {
+      const env = turnRailEnv({ nav: 'visible', marks: Array.from({ length: 12 }, (_, i) => `跳转到第 ${String(i + 1)} 轮`) })
+      installTurnRail(env)
+      const first = env.marks[0]!
+      const scroller = env.nav?.firstElementChild
+      env.dispatch('pointerdown', { target: first, clientY: first.top + 5, pointerId: 31 })
+      vi.advanceTimersByTime(400)
+      const edgeY = (env.nav?.top ?? 355) + (env.nav?.height ?? 52) - 2
+      env.dispatch('pointermove', { target: first, clientY: edgeY, pointerId: 31, preventDefault() {} })
+      vi.advanceTimersByTime(64)
+      expect(scroller?.scrollTop).toBeGreaterThan(0)
+      env.dispatch('pointerup', { target: first, clientY: edgeY, pointerId: 31 })
+      const stoppedAt = scroller?.scrollTop
+      vi.advanceTimersByTime(64)
+      expect(scroller?.scrollTop).toBe(stoppedAt)
     } finally {
       vi.useRealTimers()
     }
@@ -934,6 +1232,8 @@ describe('injectMobileTurnRail', () => {
       installTurnRail(env)
       env.dispatch('pointerdown', { target: env.marks[1], clientY: 5 })
       vi.advanceTimersByTime(400)
+      // A held touch emits its compatibility click only after pointerup.
+      env.dispatch('pointerup', { target: env.marks[1], clientY: 5 })
       const parts = env.cardParts()
       const stopped: string[] = []
       const click = (target: FakeElement) => ({
@@ -952,6 +1252,44 @@ describe('injectMobileTurnRail', () => {
       // And the guard is one-shot: it does not keep eating later taps.
       env.dispatch('click', click(env.marks[2] as FakeElement))
       expect(stopped).toEqual(['mark'])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('swallows the trailing click even when the system cancels the gesture', () => {
+    // iOS fires pointercancel when it takes the gesture over (native selection or
+    // drag). The click that follows still belongs to our gesture and must not
+    // reach whatever sits under the finger.
+    vi.useFakeTimers()
+    try {
+      const env = turnRailEnv({ nav: 'visible' })
+      installTurnRail(env)
+      env.dispatch('pointerdown', { target: env.marks[1], clientY: env.marks[1]?.top ?? 365, pointerId: 41 })
+      vi.advanceTimersByTime(400)
+      env.dispatch('pointermove', {
+        target: env.marks[1], clientY: (env.marks[2]?.top ?? 385) + 5, pointerId: 41, preventDefault() {},
+      })
+      env.dispatch('pointercancel', { target: env.marks[1], pointerId: 41 })
+
+      const stopped: string[] = []
+      env.dispatch('click', {
+        target: env.marks[1] as FakeElement,
+        stopPropagation: () => { stopped.push('swallowed') },
+        preventDefault: () => {},
+      })
+      expect(stopped).toEqual(['swallowed'])
+
+      // A plain tap has no drag state to protect, so it must never be swallowed.
+      env.dispatch('pointerdown', { target: env.marks[1], clientY: env.marks[1]?.top ?? 365, pointerId: 42 })
+      vi.advanceTimersByTime(100)
+      env.dispatch('pointercancel', { target: env.marks[1], pointerId: 42 })
+      env.dispatch('click', {
+        target: env.marks[1] as FakeElement,
+        stopPropagation: () => { stopped.push('tap-swallowed') },
+        preventDefault: () => {},
+      })
+      expect(stopped).toEqual(['swallowed'])
     } finally {
       vi.useRealTimers()
     }
