@@ -148,10 +148,11 @@ The plugin reads its config from its Cordis entry. **Every key has a usable defa
 
 ## Compatibility
 
-Current version: plugin **`0.7.0`**, compatible with DeepSeek Harness **`0.2.1-alpha.1`**. Each row below is one plugin release: the DSH versions it was verified against, and what that release did.
+Current version: plugin **`0.7.1`**, compatible with DeepSeek Harness **`0.2.1-alpha.1`**. Each row below is one plugin release: the DSH versions it was verified against, and what that release did.
 
 | Plugin | Verified DeepSeek Harness | What this version is |
 | --- | --- | --- |
+| **`0.7.1`** | **`0.2.1-alpha.1`**, `0.2.0-rc.2`, `0.2.0-rc.1`, `0.1.7-rc.2` | Documentation release: the README and past release notes were rewritten in plain language. Behaviour is identical to 0.7.0. |
 | **`0.7.0`** | **`0.2.1-alpha.1`**, `0.2.0-rc.2`, `0.2.0-rc.1`, `0.1.7-rc.2` | The phone turn rail finally works: no more drifting card, and previews follow your finger while you hold and slide (off by default). Blank pages after a restart are fixed too. |
 | **`0.6.0`** | **`0.2.1-alpha.1`**, **`0.2.0-rc.2`**, `0.2.0-rc.1`, `0.1.7-rc.2` | Fixed "you can see the rail but not its content" on a phone: holding a tick for ~0.3s now opens a card with that turn's prompt and reply. |
 | **`0.5.0`** | **`0.2.1-alpha.1`**, **`0.2.0-rc.2`**, `0.2.0-rc.1`, `0.1.7-rc.2` | Keeps up with the new DSH release (declaration only) and adds the phone turn rail, off by default. |
