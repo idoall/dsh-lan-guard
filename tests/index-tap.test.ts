@@ -831,6 +831,10 @@ describe('injectMobileTurnRail', () => {
     expect(body).toContain('turn scrub start')
     expect(body).toContain('button[data-index]')
     expect(body).toContain('autoScroll')
+    // The hovered tick must be VISIBLE while scrubbing: the official preview
+    // style is a 0.9-scale grey hairline, invisible under a finger.
+    expect(body).toContain('_markP')
+    expect(body).toContain('--dsw-alias-state-business-primary')
     expect(body).toContain('-webkit-touch-callout:none')
     expect(body).toContain('320')
     expect(body).toContain('pointerdown')

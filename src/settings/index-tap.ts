@@ -510,7 +510,7 @@ export function mobileTurnRailTouchScript(): string {
       try{doc.removeEventListener("click",handler,true)}catch(e){}
     };
     try{doc.addEventListener("click",handler,true)}catch(e){}
-    setTimeout(function(){try{doc.removeEventListener("click",handler,true)}catch(e){}},900);
+    setTimeout(function(){try{doc.removeEventListener("click",handler,true)}catch(e){}},500);
   }
   function open(node,ev){
     nav=navOf(node)||nav;
@@ -654,9 +654,20 @@ export function mobileTurnRailScript(): string {
     // grows 2px -> 3px because a hairline is unreadable on a phone.
     + '+"{display:block!important;right:4px!important;width:28px!important;'
     + 'touch-action:none;-webkit-touch-callout:none}"'
-    + '+"nav[aria-label=\\"轮次导航\\"] button::before,nav[aria-label=\\"Turn navigation\\"] button::before{height:3px!important}"'
+    + '+"nav[aria-label=\\"轮次导航\\"] button[data-index]::before,'
+    + 'nav[aria-label=\\"Turn navigation\\"] button[data-index]::before{height:3px!important}"'
     + '+"nav[aria-label=\\"轮次导航\\"][data-lg-turn-card] [role=\\"tooltip\\"],'
     + 'nav[aria-label=\\"Turn navigation\\"][data-lg-turn-card] [role=\\"tooltip\\"]{display:none!important}"'
+    // While the card is open the official component marks the hovered tick with
+    // its `markPreview` class, whose resting style is a 0.9-scale grey hairline —
+    // invisible under a finger. Promote it to a full-length brand-coloured bar so
+    // the user can SEE the selection follow the drag (the black active tick keeps
+    // showing where the transcript actually is).
+    + '+"nav[aria-label=\\"轮次导航\\"][data-lg-turn-card] button[class*=\\"_markP\\"]::before,'
+    + 'nav[aria-label=\\"Turn navigation\\"][data-lg-turn-card] button[class*=\\"_markP\\"]::before{'
+    + 'transform:translateY(-50%) scaleX(1)!important;'
+    + 'background:var(--dsw-alias-state-business-primary,#3964fe)!important;'
+    + 'opacity:1!important}"'
     // Structural fallback: the chat frame is the div holding both the rail slot
     // and the transcript root; display-only, so a stray match is a no-op.
     + '+"div:has(>div [data-chat-flow])>div>nav{display:block!important}"+"}"));'
