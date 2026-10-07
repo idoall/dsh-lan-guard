@@ -311,7 +311,8 @@ export function mobileTurnRailTouchScript(): string {
   // React may commit the official tooltip after several frames on iOS while a
   // finger is moving continuously. Observe that DOM instead of assuming two
   // animation frames are enough, and keep a small bounded polling fallback.
-  var tipObserver=null,navObserver=null,tipNode=null,tipPoll=0;
+  var tipObserver=null,navObserver=null,markObserver=null,tipNode=null,tipPoll=0;
+  var tipBaseline="",tipGeneration=0;
   function one(sel,root){try{return (root||doc).querySelector(sel)}catch(e){return null}}
   function navOf(node){try{return node&&node.closest?node.closest(SEL):null}catch(e){return null}}
   // Official TurnNavigator marks carry data-index; card controls do not.
@@ -366,7 +367,7 @@ export function mobileTurnRailTouchScript(): string {
     });
   }
   function hide(){
-    armed=false;scrubbing=false;dragScrolling=false;clearTimeout(timer);stopAuto();release();clearTipWatch();mark=null;
+    armed=false;scrubbing=false;dragScrolling=false;clearTimeout(timer);stopAuto();release();clearTipWatch();tipBaseline="";mark=null;
     if(card)card.style.display="none";
     try{if(nav)nav.removeAttribute("data-lg-turn-card")}catch(e){}
   }
@@ -413,7 +414,8 @@ export function mobileTurnRailTouchScript(): string {
     if(tipPoll){clearTimeout(tipPoll);tipPoll=0}
     try{if(tipObserver)tipObserver.disconnect()}catch(e){}
     try{if(navObserver)navObserver.disconnect()}catch(e){}
-    tipObserver=null;navObserver=null;tipNode=null;
+    try{if(markObserver)markObserver.disconnect()}catch(e){}
+    tipObserver=null;navObserver=null;markObserver=null;tipNode=null;
   }
   function readTip(){
     var prompt="",reply="",tip=nav?one('[role="tooltip"]',nav):null;
@@ -423,56 +425,88 @@ export function mobileTurnRailTouchScript(): string {
     }
     return {prompt:prompt,reply:reply,tip:tip};
   }
-  /** Render the current mark. includeTip is false while React still owns the next commit. */
-  function paint(includeTip){
+  function tipKey(text){return (text.prompt||"")+"\\n"+(text.reply||"")}
+  function signalPreview(node){
+    if(!node)return;
+    try{
+      var r=node.getBoundingClientRect();
+      if(typeof S.PointerEvent==="function"){
+        // pointerover is the PC path that marks the rail as being worked; the
+        // following mouse move is intentionally the same signal DSH uses for
+        // its desktop hover preview, not a synthetic click or navigation.
+        node.dispatchEvent(new S.PointerEvent("pointerover",{
+          bubbles:true,cancelable:false,pointerType:"mouse",clientX:r.left+r.width/2,clientY:r.top+r.height/2
+        }));
+        node.dispatchEvent(new S.PointerEvent("pointermove",{
+          bubbles:true,cancelable:false,pointerType:"mouse",clientX:r.left+r.width/2,clientY:r.top+r.height/2
+        }));
+      }else if(typeof S.Event==="function"){
+        node.dispatchEvent(new S.Event("pointermove",{bubbles:true}));
+      }
+    }catch(e){}
+  }
+  /** Render the current mark. A pending tooltip must never show an old turn's text. */
+  function paint(includeTip,allowSame){
     if(!card||!mark)return;
-    var label="",prompt="",reply="";
+    var label="",prompt="",reply="",ready=false;
     try{label=mark.getAttribute("aria-label")||""}catch(e){}
     if(includeTip&&previewReady(mark)){
-      var text=readTip();prompt=text.prompt;reply=text.reply;
+      var text=readTip(),key=tipKey(text);
+      if((text.prompt||text.reply)&&(allowSame||key!==tipBaseline)){
+        prompt=text.prompt;reply=text.reply;ready=true;
+      }
     }
-    titleEl.textContent=prompt||label||"轮次";
-    bodyEl.textContent=reply;
-    bodyEl.style.display=reply?"block":"none";
+    // aria-label belongs to the CTA only. It is not a summary, so never use it
+    // as the floating title: that caused the visible "Jump to turn 75" duplicate.
+    titleEl.textContent=ready?(prompt||"本轮对话"):'正在读取本轮摘要…';
+    bodyEl.textContent=ready?reply:"";
+    bodyEl.style.display=ready&&reply?"block":"none";
     jumpEl.textContent=label||"跳转";
     card.style.display="block";
     placeCard();
     own();
   }
-  function watchTip(node){
+  function watchTip(node,generation){
     clearTipWatch();
     var tries=0;
+    function live(){return tipGeneration===generation&&mark===node&&card&&card.style.display!=="none"}
+    function refresh(allowSame){if(live())paint(true,allowSame)}
     function attach(tip){
       if(tip===tipNode)return;
       try{if(tipObserver)tipObserver.disconnect()}catch(e){}
       tipNode=tip;tipObserver=null;
       if(!tip||typeof S.MutationObserver!=="function")return;
       try{
-        tipObserver=new S.MutationObserver(function(){
-          if(mark===node&&card&&card.style.display!=="none")paint(true);
-        });
+        tipObserver=new S.MutationObserver(function(){refresh(false)});
         tipObserver.observe(tip,{childList:true,subtree:true,characterData:true});
       }catch(e){tipObserver=null}
     }
     function retry(){
-      if(mark!==node||!card||card.style.display==="none")return;
+      if(!live())return;
+      // Re-signal the official PC preview path: on iOS React can coalesce a
+      // burst of touch moves, whereas this current-mark signal is idempotent.
+      signalPreview(node);
       attach(nav?one('[role="tooltip"]',nav):null);
-      paint(true);
-      // iOS can batch a React preview behind several pointer moves. Bound the
-      // fallback to about half a second; observers handle the common fast path.
-      if(++tries<12)tipPoll=setTimeout(retry,45);
+      // If two turns genuinely share identical text, accept it after a short
+      // grace period rather than leaving the card pending forever.
+      refresh(tries>=7);
+      // About 1.8 seconds: enough for a coalesced WebKit React commit, bounded
+      // so a card left open never keeps a background timer alive.
+      if(++tries<40)tipPoll=setTimeout(retry,45);
     }
     if(nav&&typeof S.MutationObserver==="function"){
       try{
         navObserver=new S.MutationObserver(function(){
-          if(mark===node&&card&&card.style.display!=="none"){
-            attach(one('[role="tooltip"]',nav));paint(true);
-          }
+          if(live()){attach(one('[role="tooltip"]',nav));refresh(false)}
         });
         // The official tooltip is a direct nav child; do not observe the card
         // itself or our own title/body writes would create an observer loop.
         navObserver.observe(nav,{childList:true});
       }catch(e){navObserver=null}
+      try{
+        markObserver=new S.MutationObserver(function(){refresh(false)});
+        markObserver.observe(node,{attributes:true,attributeFilter:["class","aria-current"]});
+      }catch(e){markObserver=null}
     }
     retry();
   }
@@ -488,22 +522,18 @@ export function mobileTurnRailTouchScript(): string {
    */
   function previewMark(node){
     if(!node)return;
+    // Only a transition from an already-previewed mark has stale text to guard
+    // against. On the first hold there is no older turn, so accept the official
+    // tooltip as soon as React renders it instead of needlessly waiting.
+    tipBaseline=mark?tipKey(readTip()):"";
     mark=node;
-    try{
-      var r=node.getBoundingClientRect();
-      if(typeof S.PointerEvent==="function"){
-        node.dispatchEvent(new S.PointerEvent("pointermove",{
-          bubbles:true,cancelable:false,pointerType:"touch",clientX:r.left+r.width/2,clientY:r.top+r.height/2
-        }));
-      }else if(typeof S.Event==="function"){
-        node.dispatchEvent(new S.Event("pointermove",{bubbles:true}));
-      }
-    }catch(e){}
+    var generation=++tipGeneration;
+    signalPreview(node);
     // Do not copy the old tooltip while React is between preview commits. The
     // blue jump button is safe to update immediately because it is this mark's
     // aria-label; title/body wait for the actual official tooltip update.
-    paint(false);
-    watchTip(node);
+    paint(false,false);
+    watchTip(node,generation);
   }
   function step(dir){
     var all=marks(),i=-1,k=0;

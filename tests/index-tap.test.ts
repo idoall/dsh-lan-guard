@@ -1159,7 +1159,7 @@ describe('injectMobileTurnRail', () => {
       // The blue jump button is immediate, but stale prompt/reply must not be
       // presented as if they belonged to turn 2 while React is still committing.
       expect(env.cardParts()?.jump?.textContent).toBe('跳转到第 2 轮')
-      expect(env.cardParts()?.title?.textContent).toBe('跳转到第 2 轮')
+      expect(env.cardParts()?.title?.textContent).toBe('正在读取本轮摘要…')
       expect(env.cardParts()?.body?.style.display).toBe('none')
 
       vi.advanceTimersByTime(220)
