@@ -565,8 +565,28 @@ export function mobileTurnRailTouchScript(): string {
     }catch(e){}
   }
   function cancel(){
+    // iOS cancels the pointer stream when it decides to run a native gesture
+    // (a text selection or a system drag). The click it then emits still belongs
+    // to the gesture we owned, and it can land on whatever is underneath — on a
+    // phone that is how a drag could reach the composer's attach control. Swallow
+    // it exactly as pointerup does; a plain tap never reaches this branch.
+    if(scrubbing||dragScrolling)swallowNextClick();
     armed=false;scrubbing=false;dragScrolling=false;clearTimeout(timer);stopAuto();release();
   }
+  /**
+   * A drag that begins on the rail can end as a file drop somewhere else, and
+   * DSH's attachment view reacts to any drag carrying a Files payload with its upload
+   * affordance. Refuse the drag at its source; events outside the rail are left
+   * alone so normal selection and dragging keep working.
+   */
+  function blockDrag(ev){
+    try{
+      var node=ev.target;
+      if(node&&navOf(node)){ev.preventDefault();ev.stopPropagation()}
+    }catch(e){}
+  }
+  doc.addEventListener("dragstart",blockDrag,true);
+  doc.addEventListener("selectstart",blockDrag,true);
   doc.addEventListener("pointerdown",onDown,true);
   doc.addEventListener("pointermove",onMove,true);
   doc.addEventListener("pointerup",finish,true);
@@ -653,7 +673,12 @@ export function mobileTurnRailScript(): string {
     // (28px at right:4px) and trades the last 2px for a wider target. The tick
     // grows 2px -> 3px because a hairline is unreadable on a phone.
     + '+"{display:block!important;right:4px!important;width:28px!important;'
-    + 'touch-action:none;-webkit-touch-callout:none}"'
+    + 'touch-action:none;-webkit-touch-callout:none;'
+    // A native drag started on the rail can end as a file drop: DSH's attachment
+    // view listens document-wide and activates whenever a drag carries `Files`
+    // (ui-attachment/drop-events.ts). On a phone that surfaces as the upload
+    // affordance appearing mid-gesture, so no drag may begin here.
+    + '-webkit-user-drag:none;user-select:none;-webkit-user-select:none}"'
     + '+"nav[aria-label=\\"轮次导航\\"] button[data-index]::before,'
     + 'nav[aria-label=\\"Turn navigation\\"] button[data-index]::before{height:3px!important}"'
     + '+"nav[aria-label=\\"轮次导航\\"][data-lg-turn-card] [role=\\"tooltip\\"],'

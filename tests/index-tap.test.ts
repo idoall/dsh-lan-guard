@@ -833,6 +833,10 @@ describe('injectMobileTurnRail', () => {
     expect(body).toContain('autoScroll')
     // The hovered tick must be VISIBLE while scrubbing: the official preview
     // style is a 0.9-scale grey hairline, invisible under a finger.
+    // A native drag begun on the rail can end as a file drop, which DSH answers
+    // with its upload affordance; the rail must not be a drag source at all.
+    expect(body).toContain('-webkit-user-drag:none')
+    expect(body).toContain('blockDrag')
     expect(body).toContain('_markP')
     expect(body).toContain('--dsw-alias-state-business-primary')
     expect(body).toContain('-webkit-touch-callout:none')
@@ -941,6 +945,38 @@ describe('injectMobileTurnRail', () => {
       expect(parts?.title?.textContent).toBe('预览里的提问')
       expect(parts?.body?.textContent).toBe('预览里的回答')
       expect(parts?.jump?.textContent).toBe('跳转到第 2 轮')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('refuses a native drag or selection that starts on the rail, and only there', () => {
+    // DSH's attachment view listens document-wide for drags carrying Files and
+    // answers them with its upload affordance, so a drag that begins on the rail
+    // must never become one. Selection and dragging elsewhere are untouched.
+    vi.useFakeTimers()
+    try {
+      const env = turnRailEnv({ nav: 'visible' })
+      installTurnRail(env)
+      const outside = new FakeElement('p')
+      const seen: string[] = []
+      // Label by provenance, not by identity with one particular mark: the rail
+      // case is exercised for more than one tick.
+      const drag = (target: FakeElement) => ({
+        target,
+        preventDefault: () => { seen.push(target === outside ? 'outside-prevented' : 'rail-prevented') },
+        stopPropagation: () => { seen.push(target === outside ? 'outside-stopped' : 'rail-stopped') },
+      })
+
+      env.dispatch('dragstart', drag(env.marks[0] as FakeElement))
+      expect(seen).toEqual(['rail-prevented', 'rail-stopped'])
+
+      // A drag that starts in the transcript must still reach the app.
+      env.dispatch('dragstart', drag(outside))
+      expect(seen).toHaveLength(2)
+
+      env.dispatch('selectstart', drag(env.marks[1] as FakeElement))
+      expect(seen.slice(2)).toEqual(['rail-prevented', 'rail-stopped'])
     } finally {
       vi.useRealTimers()
     }
@@ -1074,6 +1110,44 @@ describe('injectMobileTurnRail', () => {
       // And the guard is one-shot: it does not keep eating later taps.
       env.dispatch('click', click(env.marks[2] as FakeElement))
       expect(stopped).toEqual(['mark'])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('swallows the trailing click even when the system cancels the gesture', () => {
+    // iOS fires pointercancel when it takes the gesture over (native selection or
+    // drag). The click that follows still belongs to our gesture and must not
+    // reach whatever sits under the finger.
+    vi.useFakeTimers()
+    try {
+      const env = turnRailEnv({ nav: 'visible' })
+      installTurnRail(env)
+      env.dispatch('pointerdown', { target: env.marks[1], clientY: env.marks[1]?.top ?? 365, pointerId: 41 })
+      vi.advanceTimersByTime(400)
+      env.dispatch('pointermove', {
+        target: env.marks[1], clientY: (env.marks[2]?.top ?? 385) + 5, pointerId: 41, preventDefault() {},
+      })
+      env.dispatch('pointercancel', { target: env.marks[1], pointerId: 41 })
+
+      const stopped: string[] = []
+      env.dispatch('click', {
+        target: env.marks[1] as FakeElement,
+        stopPropagation: () => { stopped.push('swallowed') },
+        preventDefault: () => {},
+      })
+      expect(stopped).toEqual(['swallowed'])
+
+      // A plain tap has no drag state to protect, so it must never be swallowed.
+      env.dispatch('pointerdown', { target: env.marks[1], clientY: env.marks[1]?.top ?? 365, pointerId: 42 })
+      vi.advanceTimersByTime(100)
+      env.dispatch('pointercancel', { target: env.marks[1], pointerId: 42 })
+      env.dispatch('click', {
+        target: env.marks[1] as FakeElement,
+        stopPropagation: () => { stopped.push('tap-swallowed') },
+        preventDefault: () => {},
+      })
+      expect(stopped).toEqual(['swallowed'])
     } finally {
       vi.useRealTimers()
     }

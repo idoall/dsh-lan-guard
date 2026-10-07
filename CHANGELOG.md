@@ -43,7 +43,18 @@
 
 **改法**：代理在转发时给 **HTML 文档**补 `cache-control: no-store`（`withDocumentNoStore`）——仅在响应是 HTML 且上游没有给缓存策略时生效，bundle 等非文档响应一律不动，因此不会伤害静态资源缓存。
 
-### 四、验证
+### 四、修掉「拖动触发上传文件」
+
+**用户真机反馈**：手机上拖动会触发上传文件的功能。
+
+**机制**：DSH 的附件视图在 document 上监听拖拽，只要拖拽数据里带 `Files` 就激活（`ui-attachment/src/client/drop-events.ts`）——也就是说，**只要轨道上能起一次原生拖拽**，松手时就可能变成一次文件投放。而 iOS 在起原生手势（选择 / 系统拖拽）时会用 `pointercancel` 收走指针流，我们原先只在 `pointerup` 分支吞掉后续 click，**被 cancel 的这次手势不会吞**，那次 click 就落到手指下面（例如输入区的附件按钮）——看起来就是"拖动触发了上传"。
+
+**改法（三处一起，缺一不可）**：
+1. 轨道及其子元素 CSS 加 `-webkit-user-drag:none; user-select:none; -webkit-user-select:none`，并且原来就有 `touch-action:none`、`-webkit-touch-callout:none`；
+2. 新增捕获阶段 `dragstart` / `selectstart` 拦截：**只有**起点在轨道内的才 `preventDefault` + `stopPropagation`，正文里的正常选择与拖拽不受影响；
+3. `pointercancel` 现在与 `pointerup` 一样吞掉这次手势的尾随 click（普通轻点没有拖拽状态，因此绝不被吞）。
+
+### 五、验证
 
 **服务端原样**（DSH 0.2.1-alpha.1 / iPhone Chrome UA / 440×956 / 经代理 3081，45 格长会话）实测：
 
