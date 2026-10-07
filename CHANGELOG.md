@@ -54,7 +54,20 @@
 2. 新增捕获阶段 `dragstart` / `selectstart` 拦截：**只有**起点在轨道内的才 `preventDefault` + `stopPropagation`，正文里的正常选择与拖拽不受影响；
 3. `pointercancel` 现在与 `pointerup` 一样吞掉这次手势的尾随 click（普通轻点没有拖拽状态，因此绝不被吞）。
 
-### 五、验证
+### 五、修掉「只能滑两下，再滑整个页面跟着拖动 / 触发刷新」
+
+**用户真机反馈**：上传问题没了，但**只能滑动两下**，继续滑就整页跟着拖，甚至刷新整个页面。
+
+**根因**：`touch-action:none` 原先只写在 `nav`（轨道）上，而手指实际落在 `nav` 的**子元素**（刻度按钮，`touch-action:auto`）上；官方 CSS 在轨道内部**没有任何 `touch-action`**（只有 `overscroll-behavior: contain`）。WebKit 便从那个子元素解析手势，手指滑过约 20px（正好 ≈ 两格）后把垂直拖拽判给页面 → 页面被拖动 → 到顶再下拉就是**下拉刷新**（整页重载）。这也解释了"只能滑两下"的滑程。
+
+**改法（三层，逐层收口）**：
+1. `touch-action:none!important` 从 `nav` 覆盖到**整棵子树** `nav[…] *`，任何后代都不能再把垂直手势让给页面；轨道自身同时 `overscroll-behavior: contain!important`；
+2. 手势期间改用**非被动 `touchmove`** 监听（`{capture:true,passive:false}`），只要本次手势是从轨道上起（`armed / scrubbing / dragScrolling` 且触点在轨道内）就 `preventDefault()`；**多指触摸放行**（不影响缩放），轨道之外的触摸一律不碰；
+3. 移动端 `html,body{overscroll-behavior-y:none}`——即使还有过冲，也不再触发下拉刷新整页重载。
+
+实测（服务端原样页面）：把注入脚本打进真实页面后逐个元素读计算样式，刻度按钮 / 内层 span / 滚动层全部 `touch-action: none` + `overscroll-behavior: contain`，`html`/`body` 为 `overscroll-behavior-y: none`。
+
+### 六、验证
 
 **服务端原样**（DSH 0.2.1-alpha.1 / iPhone Chrome UA / 440×956 / 经代理 3081，45 格长会话）实测：
 

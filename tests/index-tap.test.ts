@@ -836,6 +836,12 @@ describe('injectMobileTurnRail', () => {
     // A native drag begun on the rail can end as a file drop, which DSH answers
     // with its upload affordance; the rail must not be a drag source at all.
     expect(body).toContain('-webkit-user-drag:none')
+    // The subtree must carry touch-action too, and the phone must stop treating a
+    // downward drag at the top of the page as a reload.
+    // The escaped selector keeps its quotes, so assert on the rule body only.
+    expect(body).toContain('*{touch-action:none!important')
+    expect(body).toContain('overscroll-behavior-y:none')
+    expect(body).toContain('blockTouch')
     expect(body).toContain('blockDrag')
     expect(body).toContain('_markP')
     expect(body).toContain('--dsw-alias-state-business-primary')
@@ -1004,6 +1010,47 @@ describe('injectMobileTurnRail', () => {
       env.dispatch('pointerup', { target: env.marks[1], clientY: y - 36, pointerId: 7 })
       vi.advanceTimersByTime(2000)
       expect(env.card()).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('refuses page scrolling for a gesture that started on the rail', () => {
+    // touch-action on the nav was not enough on WebKit: the finger lands on a
+    // mark (touch-action:auto, and official CSS sets none inside the rail), so
+    // the browser could still take the vertical drag after its slop and the
+    // overscroll then fired pull-to-refresh mid-scrub. The subtree rule plus a
+    // non-passive touchmove refusal is what keeps the gesture ours.
+    vi.useFakeTimers()
+    try {
+      const env = turnRailEnv({ nav: 'visible' })
+      installTurnRail(env)
+      const outside = new FakeElement('p')
+      const prevented: string[] = []
+      const move = (target: FakeElement, touches = 1) => ({
+        target,
+        touches: Array.from({ length: touches }, () => ({})),
+        preventDefault: () => { prevented.push(target === outside ? 'outside' : 'rail') },
+      })
+
+      // Nothing is armed yet: the layer must not interfere with the page.
+      env.dispatch('touchmove', move(env.marks[0] as FakeElement))
+      expect(prevented).toEqual([])
+
+      env.dispatch('pointerdown', { target: env.marks[0], clientY: 355, pointerId: 51 })
+      env.dispatch('touchmove', move(env.marks[0] as FakeElement))
+      expect(prevented).toEqual(['rail'])
+
+      // A touch elsewhere, or a second finger (pinch), is never touched.
+      env.dispatch('touchmove', move(outside))
+      env.dispatch('touchmove', move(env.marks[1] as FakeElement, 2))
+      expect(prevented).toEqual(['rail'])
+
+      // After the gesture ends the page is free again.
+      env.dispatch('pointerup', { target: env.marks[0], clientY: 355, pointerId: 51 })
+      vi.advanceTimersByTime(600)
+      env.dispatch('touchmove', move(env.marks[0] as FakeElement))
+      expect(prevented).toEqual(['rail'])
     } finally {
       vi.useRealTimers()
     }

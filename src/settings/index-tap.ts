@@ -579,12 +579,30 @@ export function mobileTurnRailTouchScript(): string {
    * affordance. Refuse the drag at its source; events outside the rail are left
    * alone so normal selection and dragging keep working.
    */
+  /**
+   * touch-action alone was not enough on WebKit: with the finger on a mark the
+   * browser could still take the vertical drag after its slop threshold, which
+   * pans the page and can fire pull-to-refresh mid-scrub. A non-passive
+   * touchmove listener lets us refuse that outright for the duration of a
+   * gesture that began on the rail. Touches anywhere else are never touched, and
+   * a multi-finger touch is left alone so pinch still works.
+   */
+  function blockTouch(ev){
+    try{
+      if(pointerId===null)return;
+      if(ev.touches&&ev.touches.length>1)return;
+      if(!(armed||scrubbing||dragScrolling))return;
+      if(!navOf(ev.target))return;
+      ev.preventDefault();
+    }catch(e){}
+  }
   function blockDrag(ev){
     try{
       var node=ev.target;
       if(node&&navOf(node)){ev.preventDefault();ev.stopPropagation()}
     }catch(e){}
   }
+  doc.addEventListener("touchmove",blockTouch,{capture:true,passive:false});
   doc.addEventListener("dragstart",blockDrag,true);
   doc.addEventListener("selectstart",blockDrag,true);
   doc.addEventListener("pointerdown",onDown,true);
@@ -673,12 +691,23 @@ export function mobileTurnRailScript(): string {
     // (28px at right:4px) and trades the last 2px for a wider target. The tick
     // grows 2px -> 3px because a hairline is unreadable on a phone.
     + '+"{display:block!important;right:4px!important;width:28px!important;'
-    + 'touch-action:none;-webkit-touch-callout:none;'
+    + 'touch-action:none!important;-webkit-touch-callout:none;'
     // A native drag started on the rail can end as a file drop: DSH's attachment
     // view listens document-wide and activates whenever a drag carries `Files`
     // (ui-attachment/drop-events.ts). On a phone that surfaces as the upload
     // affordance appearing mid-gesture, so no drag may begin here.
-    + '-webkit-user-drag:none;user-select:none;-webkit-user-select:none}"'
+    + '-webkit-user-drag:none;user-select:none;-webkit-user-select:none;'
+    + 'overscroll-behavior:contain!important}"'
+    // The finger lands on a MARK, a plain button with touch-action:auto, and
+    // official CSS sets no touch-action anywhere inside the rail. WebKit then
+    // resolves the gesture from that descendant, hands the vertical drag to the
+    // page after a small slop, and the resulting overscroll fires pull-to-refresh
+    // mid-scrub (measured on device: the card advances ~2 ticks, then the whole
+    // page drags/refreshes). Cover the whole subtree, and make the phone stop
+    // treating a downward drag at scrollTop 0 as a reload.
+    + '+"nav[aria-label=\\"轮次导航\\"] *,nav[aria-label=\\"Turn navigation\\"] *'
+    + '{touch-action:none!important;overscroll-behavior:contain!important}"'
+    + '+"html,body{overscroll-behavior-y:none!important}"'
     + '+"nav[aria-label=\\"轮次导航\\"] button[data-index]::before,'
     + 'nav[aria-label=\\"Turn navigation\\"] button[data-index]::before{height:3px!important}"'
     + '+"nav[aria-label=\\"轮次导航\\"][data-lg-turn-card] [role=\\"tooltip\\"],'
