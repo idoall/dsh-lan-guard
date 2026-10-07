@@ -67,7 +67,20 @@
 
 实测（服务端原样页面）：把注入脚本打进真实页面后逐个元素读计算样式，刻度按钮 / 内层 span / 滚动层全部 `touch-action: none` + `overscroll-behavior: contain`，`html`/`body` 为 `overscroll-behavior-y: none`。
 
-### 六、验证
+### 六、修掉「蓝色跳转按钮变了，浮窗标题/内容却不变」
+
+**用户真机反馈**：按住拖动时，蓝色「加载并跳转到第 N 轮」按钮会变，说明命中的刻度已经切换；但浮窗标题与回复摘要仍停在上一轮。
+
+**根因**：蓝色按钮直接读当前刻度的 `aria-label`，因此可同步更新；标题/摘要则读官方 React tooltip 的 DOM。连续拖动时，iPhone WebKit 上 React 对 tooltip 的提交可能晚于原先假定的双 `requestAnimationFrame`，脚本重复读到仍挂在 DOM 上的**上一轮 tooltip**，所以按钮与内容脱节。
+
+**改法**：不再赌固定两帧：
+1. 切换新刻度时先显示当前 `aria-label`、隐藏旧摘要，绝不把旧轮次内容伪装成新轮次；
+2. 监听官方 tooltip 的文本/子节点更新（`MutationObserver`），React 一提交即重读标题和摘要；
+3. 同时保留最多约 0.5 秒的有界轮询，覆盖 WebKit 批量提交或替换整个 tooltip 节点的情况；关闭卡片时统一断开 observer / timer。
+
+新增延迟提交用例：官方 tooltip 故意晚于旧双 rAF 假设 150ms 才更新；此时按钮先切第 2 轮、旧摘要隐藏，随后浮窗标题和正文变为第 2 轮内容。移除 watcher 后该用例立即变红。
+
+### 七、验证
 
 **服务端原样**（DSH 0.2.1-alpha.1 / iPhone Chrome UA / 440×956 / 经代理 3081，45 格长会话）实测：
 

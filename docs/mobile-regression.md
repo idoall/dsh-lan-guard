@@ -77,7 +77,7 @@ UA: Mozilla/5.0 (iPhone; CPU iPhone OS 27_0 like Mac OS X) ... Version/27.0 Mobi
 | 4 | **`?lgdiag=1` 尾部** | 诊断面板末几行 | 全是 `official scroll layer works` 或 `ineffective -> reverted (stock page)`；出现 `clip grow` 才说明补偿真的动手了 |
 | 5 | **（可选）轮次浮轨** | 打开 `mobileTurnRail` 后，`nav[aria-label="轮次导航"|"Turn navigation"]` 的 `display` 与 rect | `display:block`、宽 28、左边缘 = 正文列右缘（440px 视口实测 `[401,…,28,…]`）、格数 ≥2、间距 10px、恰好 1 格 `aria-current`、刻度 `::before` 高 3px；**其余 nav 的 `display` 不变** |
 | 6 | **（可选）轮次卡片** | 按住一个刻度约 0.3 秒 | `#lg-turn-card` 出现且 `display:block`、**挂在官方 `nav` 内**（不是 body 的 fixed 浮层）、标题为该轮提问、正文为回复摘要、按钮文字为官方本地化的跳转文案；◀▶ 更新按钮文字；点跳转后卡片 `display:none` |
-| 7 | **（可选）连续扫摘要** | 长按成功后把指针从一格移到另一格 | 卡片按钮文字随手指下的刻度改变、`[data-conversation-scroll]` 的 `scrollTop` **不变**（没有跳转） |
+| 7 | **（可选）连续扫摘要** | 长按成功后把指针从一格移到另一格 | 卡片按钮文字、**标题、摘要**最终属于同一手指下刻度；新 tooltip 正在提交时旧摘要应隐藏、不能混轮；`[data-conversation-scroll]` 的 `scrollTop` **不变**（没有跳转） |
 | 8 | **（可选）边缘自动卷动** | 长按成功后将指针停在轨道上/下边缘 30px 内 | 轨道 `scrollTop` 持续变化直到该方向到顶/到底；卡片跟着换成新露出的刻度 |
 
 > ⚠️ 测判据 8 先看方向：会话打开时当前轮次是最新的，官方会把激活刻度居中，所以轨道**通常已经在最底部**（`scrollTop = scrollHeight - clientHeight`）。此时只有往**上**滑（指针停上边缘）才有可滚空间；往下滑读数不变属于正常现象，不代表功能失效。

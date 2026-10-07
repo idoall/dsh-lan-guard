@@ -495,6 +495,7 @@ class FakeElement {
   parentNode: FakeElement | null = null
   closestTarget: FakeElement | null = null
   textContent = ''
+  className = ''
   type = ''
   focused = false
   pointerMoves = 0
@@ -622,6 +623,10 @@ interface TurnRailEnvOptions {
   marks?: readonly string[]
   /** Text the official tooltip renders after a mark receives its hover signal. */
   preview?: { prompt: string; reply: string }
+  /** Simulate React committing a different official tooltip after a pointer move. */
+  previewByMark?: Readonly<Record<string, { prompt: string; reply: string }>>
+  /** Delay that simulated React commit; defaults to immediately. */
+  previewDelayMs?: number
   /** Make `document.addEventListener` throw, to prove the rail survives it. */
   brokenListeners?: boolean
 }
@@ -684,6 +689,24 @@ function turnRailEnv(options: TurnRailEnvOptions = {}) {
     tooltip.appendChild(prompt)
     tooltip.appendChild(reply)
     nav.appendChild(tooltip)
+    // React owns the real tooltip and may update it after the pointer event has
+    // already returned. Model that delayed commit so the mobile layer cannot
+    // merely assume two animation frames are always enough.
+    for (const mark of marks) {
+      mark.addEventListener('pointermove', () => {
+        const next = options.previewByMark?.[mark.getAttribute('aria-label') ?? '']
+        // React changes markPreview and tooltip contents in the same commit.
+        // A mapped mark deliberately commits late to prove the card waits for
+        // the official DOM instead of displaying the old turn's text.
+        setTimeout(() => {
+          for (const candidate of marks) candidate.className = candidate === mark ? 'markPreview' : ''
+          if (next !== undefined) {
+            prompt.textContent = next.prompt
+            reply.textContent = next.reply
+          }
+        }, next === undefined ? 0 : (options.previewDelayMs ?? 0))
+      })
+    }
   }
   const documentListeners = new Map<string, ((event: Record<string, unknown>) => void)[]>()
   const doc = {
@@ -937,7 +960,9 @@ describe('injectMobileTurnRail', () => {
       vi.advanceTimersByTime(300)
       expect(env.card()).toBeNull()
 
-      vi.advanceTimersByTime(60)
+      // React's markPreview commit and the tooltip watcher may land after the
+      // hold timer itself; wait past one observer fallback interval.
+      vi.advanceTimersByTime(120)
       const parts = env.cardParts()
       expect(parts?.card.style.display).toBe('block')
       // The card stays in the official rail's containing block, not a
@@ -1103,6 +1128,44 @@ describe('injectMobileTurnRail', () => {
 
       env.cardParts()?.prev?.click()
       expect(env.cardParts()?.jump?.textContent).toBe('跳转到第 1 轮')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('refreshes the floating prompt and reply when React commits a delayed tooltip', () => {
+    vi.useFakeTimers()
+    try {
+      const env = turnRailEnv({
+        nav: 'visible',
+        preview: { prompt: '第一轮问题', reply: '第一轮摘要' },
+        previewByMark: {
+          '跳转到第 2 轮': { prompt: '第二轮问题', reply: '第二轮摘要' },
+        },
+        // This is deliberately longer than the old double-rAF assumption.
+        previewDelayMs: 150,
+      })
+      installTurnRail(env)
+      const first = env.marks[0]!
+      const second = env.marks[1]!
+      env.dispatch('pointerdown', { target: first, clientY: first.top + 5, pointerId: 61 })
+      vi.advanceTimersByTime(400)
+      expect(env.cardParts()?.title?.textContent).toBe('第一轮问题')
+      expect(env.cardParts()?.body?.textContent).toBe('第一轮摘要')
+
+      env.dispatch('pointermove', {
+        target: first, clientY: second.top + 5, pointerId: 61, preventDefault() {},
+      })
+      // The blue jump button is immediate, but stale prompt/reply must not be
+      // presented as if they belonged to turn 2 while React is still committing.
+      expect(env.cardParts()?.jump?.textContent).toBe('跳转到第 2 轮')
+      expect(env.cardParts()?.title?.textContent).toBe('跳转到第 2 轮')
+      expect(env.cardParts()?.body?.style.display).toBe('none')
+
+      vi.advanceTimersByTime(220)
+      expect(env.cardParts()?.title?.textContent).toBe('第二轮问题')
+      expect(env.cardParts()?.body?.textContent).toBe('第二轮摘要')
+      expect(env.cardParts()?.body?.style.display).toBe('block')
     } finally {
       vi.useRealTimers()
     }

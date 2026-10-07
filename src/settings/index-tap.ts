@@ -308,6 +308,10 @@ export function mobileTurnRailTouchScript(): string {
   var card=null,titleEl=null,bodyEl=null,jumpEl=null,prevEl=null,nextEl=null,closeEl=null;
   var nav=null,mark=null,armed=false,scrubbing=false,dragScrolling=false;
   var armY=0,lastY=0,timer=0,pointerId=null,captureNode=null,scrubDir=0,scrubRaf=0;
+  // React may commit the official tooltip after several frames on iOS while a
+  // finger is moving continuously. Observe that DOM instead of assuming two
+  // animation frames are enough, and keep a small bounded polling fallback.
+  var tipObserver=null,navObserver=null,tipNode=null,tipPoll=0;
   function one(sel,root){try{return (root||doc).querySelector(sel)}catch(e){return null}}
   function navOf(node){try{return node&&node.closest?node.closest(SEL):null}catch(e){return null}}
   // Official TurnNavigator marks carry data-index; card controls do not.
@@ -362,7 +366,7 @@ export function mobileTurnRailTouchScript(): string {
     });
   }
   function hide(){
-    armed=false;scrubbing=false;dragScrolling=false;clearTimeout(timer);stopAuto();release();mark=null;
+    armed=false;scrubbing=false;dragScrolling=false;clearTimeout(timer);stopAuto();release();clearTipWatch();mark=null;
     if(card)card.style.display="none";
     try{if(nav)nav.removeAttribute("data-lg-turn-card")}catch(e){}
   }
@@ -395,15 +399,37 @@ export function mobileTurnRailTouchScript(): string {
       card.style.top=Math.round(top+dy)+"px";
     }
   }
-  function paint(){
-    if(!card||!mark)return;
-    var label="";
-    try{label=mark.getAttribute("aria-label")||""}catch(e){}
-    var tip=nav?one('[role="tooltip"]',nav):null;
-    var prompt="",reply="";
+  function previewReady(node){
+    // In the real rail React adds markPreview in the same commit that updates
+    // the tooltip. Do not copy a previous mark's still-mounted tooltip during
+    // the gap. The lightweight fake DOM used by unit tests has no className,
+    // so it is deliberately treated as already committed.
+    try{
+      if(typeof node.className!=="string")return true;
+      return node.className.indexOf("markPreview")>=0||node.getAttribute("aria-current")==="true";
+    }catch(e){return true}
+  }
+  function clearTipWatch(){
+    if(tipPoll){clearTimeout(tipPoll);tipPoll=0}
+    try{if(tipObserver)tipObserver.disconnect()}catch(e){}
+    try{if(navObserver)navObserver.disconnect()}catch(e){}
+    tipObserver=null;navObserver=null;tipNode=null;
+  }
+  function readTip(){
+    var prompt="",reply="",tip=nav?one('[role="tooltip"]',nav):null;
     if(tip&&tip.children){
       if(tip.children[0])prompt=tip.children[0].textContent||"";
       if(tip.children[1])reply=tip.children[1].textContent||"";
+    }
+    return {prompt:prompt,reply:reply,tip:tip};
+  }
+  /** Render the current mark. includeTip is false while React still owns the next commit. */
+  function paint(includeTip){
+    if(!card||!mark)return;
+    var label="",prompt="",reply="";
+    try{label=mark.getAttribute("aria-label")||""}catch(e){}
+    if(includeTip&&previewReady(mark)){
+      var text=readTip();prompt=text.prompt;reply=text.reply;
     }
     titleEl.textContent=prompt||label||"轮次";
     bodyEl.textContent=reply;
@@ -412,6 +438,43 @@ export function mobileTurnRailTouchScript(): string {
     card.style.display="block";
     placeCard();
     own();
+  }
+  function watchTip(node){
+    clearTipWatch();
+    var tries=0;
+    function attach(tip){
+      if(tip===tipNode)return;
+      try{if(tipObserver)tipObserver.disconnect()}catch(e){}
+      tipNode=tip;tipObserver=null;
+      if(!tip||typeof S.MutationObserver!=="function")return;
+      try{
+        tipObserver=new S.MutationObserver(function(){
+          if(mark===node&&card&&card.style.display!=="none")paint(true);
+        });
+        tipObserver.observe(tip,{childList:true,subtree:true,characterData:true});
+      }catch(e){tipObserver=null}
+    }
+    function retry(){
+      if(mark!==node||!card||card.style.display==="none")return;
+      attach(nav?one('[role="tooltip"]',nav):null);
+      paint(true);
+      // iOS can batch a React preview behind several pointer moves. Bound the
+      // fallback to about half a second; observers handle the common fast path.
+      if(++tries<12)tipPoll=setTimeout(retry,45);
+    }
+    if(nav&&typeof S.MutationObserver==="function"){
+      try{
+        navObserver=new S.MutationObserver(function(){
+          if(mark===node&&card&&card.style.display!=="none"){
+            attach(one('[role="tooltip"]',nav));paint(true);
+          }
+        });
+        // The official tooltip is a direct nav child; do not observe the card
+        // itself or our own title/body writes would create an observer loop.
+        navObserver.observe(nav,{childList:true});
+      }catch(e){navObserver=null}
+    }
+    retry();
   }
   /**
    * Ask the OFFICIAL component to render its preview without focusing the mark.
@@ -436,11 +499,11 @@ export function mobileTurnRailTouchScript(): string {
         node.dispatchEvent(new S.Event("pointermove",{bubbles:true}));
       }
     }catch(e){}
-    paint();
-    // React commits the official tooltip on a later frame; re-read once it has.
-    try{requestAnimationFrame(function(){requestAnimationFrame(function(){
-      if(card&&card.style.display!=="none"&&mark===node)paint()
-    })})}catch(e){}
+    // Do not copy the old tooltip while React is between preview commits. The
+    // blue jump button is safe to update immediately because it is this mark's
+    // aria-label; title/body wait for the actual official tooltip update.
+    paint(false);
+    watchTip(node);
   }
   function step(dir){
     var all=marks(),i=-1,k=0;
