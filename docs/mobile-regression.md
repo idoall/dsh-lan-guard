@@ -76,7 +76,11 @@ UA: Mozilla/5.0 (iPhone; CPU iPhone OS 27_0 like Mac OS X) ... Version/27.0 Mobi
 | 3 | **被裁层数** | 滚动层内部所有 `overflow-y` 为 `hidden`/`clip` 且内容溢出的 `div` 个数 | **0** |
 | 4 | **`?lgdiag=1` 尾部** | 诊断面板末几行 | 全是 `official scroll layer works` 或 `ineffective -> reverted (stock page)`；出现 `clip grow` 才说明补偿真的动手了 |
 | 5 | **（可选）轮次浮轨** | 打开 `mobileTurnRail` 后，`nav[aria-label="轮次导航"|"Turn navigation"]` 的 `display` 与 rect | `display:block`、宽 28、左边缘 = 正文列右缘（440px 视口实测 `[401,…,28,…]`）、格数 ≥2、间距 10px、恰好 1 格 `aria-current`、刻度 `::before` 高 3px；**其余 nav 的 `display` 不变** |
-| 6 | **（可选）轮次卡片** | 按住一个刻度约 0.3 秒 | `#lg-turn-card` 出现且 `display:block`、标题为该轮提问、正文为回复摘要、按钮文字为官方本地化的跳转文案；◀▶ 更新按钮文字；点跳转后卡片 `display:none` |
+| 6 | **（可选）轮次卡片** | 按住一个刻度约 0.3 秒 | `#lg-turn-card` 出现且 `display:block`、**挂在官方 `nav` 内**（不是 body 的 fixed 浮层）、标题为该轮提问、正文为回复摘要、按钮文字为官方本地化的跳转文案；◀▶ 更新按钮文字；点跳转后卡片 `display:none` |
+| 7 | **（可选）连续扫摘要** | 长按成功后把指针从一格移到另一格 | 卡片按钮文字随手指下的刻度改变、`[data-conversation-scroll]` 的 `scrollTop` **不变**（没有跳转） |
+| 8 | **（可选）边缘自动卷动** | 长按成功后将指针停在轨道上/下边缘 30px 内 | 轨道 `scrollTop` 持续变化直到该方向到顶/到底；卡片跟着换成新露出的刻度 |
+
+> ⚠️ 测判据 8 先看方向：会话打开时当前轮次是最新的，官方会把激活刻度居中，所以轨道**通常已经在最底部**（`scrollTop = scrollHeight - clientHeight`）。此时只有往**上**滑（指针停上边缘）才有可滚空间；往下滑读数不变属于正常现象，不代表功能失效。
 
 判据 1 的失败形态很好认：**按钮点了会消失（`data-sidebar-right-open` 出现、`expandButtonGone = true`），
 但面板可见面积 0%** —— 说明状态切换成功、几何错位，是布局问题不是事件问题。此时看
@@ -97,6 +101,12 @@ UA: Mozilla/5.0 (iPhone; CPU iPhone OS 27_0 like Mac OS X) ... Version/27.0 Mobi
 | `html` / `#root` 上的内联样式 | 只有 `color-scheme` ⇒ 补偿**零介入** | — |
 | 新增的 `[data-shell-bottom]` 行 | rect `[0,844,390,0]`（0.2.1 新增的全宽底栏槽，无人渲染 ⇒ 不占高度） | 同左 |
 | JS 报错 | 0 | 0 |
+
+判据 7/8 在 `0.7.0` 上以服务端原样页面实测（0.2.1-alpha.1 / iPhone Chrome UA / 440×956 / 经代理 3081，45 格长会话）：
+按住后滑到中间刻度 → 卡片 **第 16 轮 → 第 38 轮**、`transcript scrollTop 14359 → 14359`（未跳转）；
+手指停在轨道上边缘 → 轨道 `scrollTop 182 → 0`、卡片一路连扫到第 1 轮；松手卡片保留；
+0.3 秒内快速向上拖 → 轨道 `scrollTop 0 → 50`、卡片内容不变；轻点刻度 → `transcript 14359 → 21`。
+`visualViewport 0…440`、`scrollX 0`、文档宽 440、0 报错。
 
 判据 5/6 同时拿到（0.2.1-alpha.1 / 440×956，把当前源码的注入脚本原样打进真实页面）：
 浮轨 `display:none` → `block`、rect `[401,411,28,52]`、5 格、间距 10px、1 格 `aria-current`、刻度 `::before` 高 3px；
