@@ -1,6 +1,6 @@
 {
   "name": "dsh-lan-guard",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "description": "DSH web plugin: expose the official desktop Web UI to the local network through a gated reverse proxy, without touching DSH's own loopback binding.",
   "license": "MIT",
   "type": "module",
@@ -26,10 +26,10 @@
     "selfsigned": "^5.5.0"
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": "^4.0.4",
+    "@deepseek-ai/cordis": "^4.0.4 || >=4.0.5-alpha.1 <4.1.0",
     "@deepseek-ai/dsh-client-connection": ">=0.1.7-rc.1 <0.3.0",
     "@deepseek-ai/dsh-host-webserver": ">=0.1.7-rc.1 <0.3.0",
-    "@deepseek-ai/schemastery": "^3.18.4"
+    "@deepseek-ai/schemastery": "^3.18.4 || >=3.18.5-alpha.1 <4.0.0"
   },
   "repository": {
     "type": "git",
@@ -71,7 +71,8 @@
         "0.1.7-rc.1": "compatible",
         "0.2.0-rc.1": "compatible",
         "0.2.0-rc.2": "compatible",
-        "0.2.1-alpha.1": "compatible"
+        "0.2.1-alpha.1": "compatible",
+        "0.2.1-alpha.3": "compatible"
       }
     }
   },
@@ -92,16 +93,17 @@
     "reverse-proxy"
   ],
   "devDependencies": {
-    "@deepseek-ai/cordis": "4.0.5-alpha.1",
-    "@deepseek-ai/dsh-client-connection": "0.2.1-alpha.1",
-    "@deepseek-ai/dsh-host-webserver": "0.2.1-alpha.1",
-    "@deepseek-ai/schemastery": "3.18.5-alpha.1",
+    "@deepseek-ai/cordis": "4.0.5-alpha.2",
+    "@deepseek-ai/dsh-client-connection": "0.2.1-alpha.3",
+    "@deepseek-ai/dsh-host-webserver": "0.2.1-alpha.3",
+    "@deepseek-ai/schemastery": "3.18.5-alpha.2",
     "@types/node": "^26.2.0",
     "@types/qrcode": "^1.5.6",
     "@types/react": "^18.3.31",
     "tsdown": "^0.22.14",
     "typescript": "^7.0.2",
-    "vitest": "^4.1.11"
+    "vitest": "^4.1.11",
+    "@deepseek-ai/dsh-scope": "0.2.1-alpha.3"
   },
   "packageManager": "pnpm@10.33.1"
 }

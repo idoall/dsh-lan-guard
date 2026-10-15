@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.7.2] — 2026-10-15（适配 DSH 0.2.1-alpha.3）
+
+**代码零改动**，只更新兼容声明、开发依赖与文档。
+
+- `dsh.compatibility.dshReleases` 增加 `0.2.1-alpha.3: compatible`。
+- 开发依赖对齐 alpha.3 宿主包：`@deepseek-ai/dsh-host-webserver`、`@deepseek-ai/dsh-client-connection` → `0.2.1-alpha.3`，连带 `@deepseek-ai/cordis` → `4.0.5-alpha.2`、`@deepseek-ai/schemastery` → `3.18.5-alpha.2`，并补 `@deepseek-ai/dsh-scope`（`dsh-client-connection` 的 peer 要求）。
+- peer 范围放宽到接纳官方随包分发的预发布版：`@deepseek-ai/cordis ^4.0.4 || >=4.0.5-alpha.1 <4.1.0`、`@deepseek-ai/schemastery ^3.18.4 || >=3.18.5-alpha.1 <4.0.0`。
+- 换用 alpha.3 的 `.d.ts` 后类型检查与 **386** 项用例全绿，构建与打包通过。
+
+**为什么不需要改代码**（alpha.3 实测）：
+
+| 检查 | 结果 |
+| --- | --- |
+| `dsh --profile web --dump-config` | exit 0，插件在合成树里，无拒载/豁免警告 |
+| 用到的宿主接口 | `webServer.register` / `tapIndex`、`connection.authenticatedUrl` / `requestRejection`、settings 分区：全在 |
+| 注入依赖的官方 DOM | 浮轨 `nav` + `button[data-index]` + `markPreview`/`markActive`、侧栏 `data-row-key`：全在 |
+| 运行态 | 注入标记齐、首页带 `cache-control: no-store`、`/config` 与 `/devices` 200、客户端包加载 200 |
+| 手机浮轨端到端 | 42 格、按住出卡片（标题/摘要正确）、滑动换轮、蓝条高亮、官方气泡隐藏，0 报错 |
+
 ## [0.7.1] — 2026-10-07（文档版：README 与发布说明改成人话）
 
 功能与 `0.7.0` 完全相同，代码零改动。
