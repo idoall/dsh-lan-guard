@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.7.3] — 2026-10-16（适配 DSH 0.2.1-alpha.4）
+
+**代码零改动**，只更新兼容声明、开发依赖与文档。
+
+- `dsh.compatibility.dshReleases` 增加 `0.2.1-alpha.4: compatible`。
+- 开发依赖对齐 alpha.4 宿主包：`@deepseek-ai/dsh-host-webserver`、`@deepseek-ai/dsh-client-connection`、`@deepseek-ai/dsh-scope` → `0.2.1-alpha.4`。
+- 换用 alpha.4 的 `.d.ts` 后类型检查与 **386** 项用例全绿，构建与打包通过。
+
+**核查结果**（alpha.4 实测）：
+
+| 检查 | 结果 |
+| --- | --- |
+| `dsh --profile web --dump-config` | exit 0，插件在合成树里，无拒载/豁免警告 |
+| 用到的宿主接口 | `webServer.register` / `tapIndex`、`connection.authenticatedUrl` / `requestRejection`、settings 分区：全在 |
+| 注入依赖的官方 DOM | 浮轨 `nav` + `button[data-index]` + `markPreview`/`markActive`、侧栏 `data-row-key`：全在 |
+| 运行态 | 注入标记齐、首页带 `cache-control: no-store`、`/config` 与 `/devices` 200 |
+| 手机浮轨端到端 | 14 格；按住第 1 轮后依次滑到第 2/3/5/8/4 轮，浮窗标题与跳转按钮逐轮跟随、蓝条跟随，0 报错 |
+
 ## [0.7.2] — 2026-10-15（适配 DSH 0.2.1-alpha.3）
 
 **代码零改动**，只更新兼容声明、开发依赖与文档。
