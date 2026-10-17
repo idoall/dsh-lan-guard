@@ -1,6 +1,6 @@
 {
   "name": "dsh-lan-guard",
-  "version": "0.7.4",
+  "version": "0.7.5",
   "description": "DSH web plugin: expose the official desktop Web UI to the local network through a gated reverse proxy, without touching DSH's own loopback binding.",
   "license": "MIT",
   "type": "module",
@@ -75,7 +75,8 @@
         "0.2.1-alpha.1": "compatible",
         "0.2.1-alpha.3": "compatible",
         "0.2.1-alpha.4": "compatible",
-        "0.2.1-alpha.5": "compatible"
+        "0.2.1-alpha.5": "compatible",
+        "0.2.1-rc.2": "compatible"
       }
     }
   },
@@ -96,17 +97,17 @@
     "reverse-proxy"
   ],
   "devDependencies": {
-    "@deepseek-ai/cordis": "4.0.5-alpha.2",
-    "@deepseek-ai/dsh-client-connection": "0.2.1-alpha.5",
-    "@deepseek-ai/dsh-host-webserver": "0.2.1-alpha.5",
-    "@deepseek-ai/schemastery": "3.18.5-alpha.2",
+    "@deepseek-ai/cordis": "4.0.5",
+    "@deepseek-ai/dsh-client-connection": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-host-webserver": "0.2.1-rc.2",
+    "@deepseek-ai/schemastery": "3.18.5",
     "@types/node": "^26.2.0",
     "@types/qrcode": "^1.5.6",
     "@types/react": "^18.3.31",
     "tsdown": "^0.22.14",
     "typescript": "^7.0.2",
     "vitest": "^4.1.11",
-    "@deepseek-ai/dsh-scope": "0.2.1-alpha.5"
+    "@deepseek-ai/dsh-scope": "0.2.1-rc.2"
   },
   "packageManager": "pnpm@10.33.1"
 }

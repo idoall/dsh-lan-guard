@@ -11,8 +11,14 @@
  *
  * Run through `pnpm run verify`, so a release tag cannot be published when the
  * published README would state a stale version.
+ *
+ * The same gate also inspects what `npm pack` would actually ship, because a
+ * file listed in `package.json#files` that no longer exists — or a README that
+ * silently dropped out of the whitelist — produces a published package whose
+ * contents do not match the repository.
  */
 import { readFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
 
 const read = path => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8')
 const problems = []
@@ -106,9 +112,35 @@ for (const name of hostDevDependencies) {
   if (range !== dshVersion) fail(`package.json: devDependency ${name} is ${range}, expected ${dshVersion}`)
 }
 
+// What npm would actually publish. `--ignore-scripts` keeps the prepack build
+// output out of stdout, so the JSON stays parseable; the build itself has
+// already run by the time `verify` reaches this check.
+const mustShip = ['package.json', 'README.md', 'README.zh.md', 'CHANGELOG.md', 'LICENSE',
+  'cordis.patch.yml', 'lib/index.js', 'lib/index.d.ts', 'lib/client.js']
+let packedPaths = new Set()
+try {
+  const raw = execFileSync('npm', ['pack', '--dry-run', '--json', '--ignore-scripts'], {
+    encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], cwd: new URL('..', import.meta.url),
+  })
+  const parsed = JSON.parse(raw)
+  const entry = Array.isArray(parsed) ? parsed[0] : parsed[pkg.name]
+  packedPaths = new Set((entry.files ?? []).map(file => file.path))
+  if (entry.version !== pluginVersion) {
+    fail(`npm pack: would publish ${entry.version}, expected ${pluginVersion}`)
+  }
+} catch (error) {
+  fail(`npm pack --dry-run failed: ${error.message.split('\n')[0]}`)
+}
+for (const path of pkg.files ?? []) {
+  if (!packedPaths.has(path)) fail(`npm pack: ${path} is listed in package.json#files but not shipped`)
+}
+for (const path of mustShip) {
+  if (!packedPaths.has(path)) fail(`npm pack: ${path} is missing from the published package`)
+}
+
 if (problems.length > 0) {
   console.error(`version consistency: ${problems.length} problem(s) for ${pluginVersion} on DSH ${dshVersion}`)
   for (const problem of problems) console.error(`  - ${problem}`)
   process.exit(1)
 }
-console.log(`version consistency: ${pluginVersion} on DSH ${dshVersion} — README (zh/en), release notes and changelog agree`)
+console.log(`version consistency: ${pluginVersion} on DSH ${dshVersion} — README (zh/en), release notes, changelog agree; npm would ship ${packedPaths.size} files`)
