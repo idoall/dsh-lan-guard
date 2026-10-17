@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.7.5] — 2026-10-17（适配 DSH 0.2.1-rc.2）
+
+**代码零改动**，只更新兼容声明、开发依赖与文档；并把「npm 包内容」纳入发版门禁。
+
+- `dsh.compatibility.dshReleases` 增加 `0.2.1-rc.2: compatible`。
+- 开发依赖对齐 rc.2：`@deepseek-ai/dsh-host-webserver`、`@deepseek-ai/dsh-client-connection`、`@deepseek-ai/dsh-scope` → `0.2.1-rc.2`；随新宿主包的 peer 要求，`@deepseek-ai/cordis` → `4.0.5`、`@deepseek-ai/schemastery` → `3.18.5`（这两个从 alpha 预发布版转为**稳定版**）。peer 范围未变，仍同时覆盖 alpha 线与 rc 线。
+- README 中英双语：徽章、「已验证的 DeepSeek Harness」、当前版本行、兼容表、已验证清单五处同步到 `0.7.5` / `0.2.1-rc.2`。
+- **门禁扩展**：`scripts/check-versions.mjs` 现在还会跑 `npm pack --dry-run`，校验「`package.json#files` 里列的每个文件确实会被打包」「package.json / 中英 README / CHANGELOG / LICENSE / cordis.patch.yml / lib 三件套都在包里」「包内版本号与仓库一致」。
+- 换用 rc.2 的 `.d.ts` 后类型检查与 **386** 项用例全绿，构建与打包通过。
+
+**核查结果**（rc.2 实测）：
+
+| 检查 | 结果 |
+| --- | --- |
+| `dsh --profile web --dump-config` | exit 0，插件在合成树里，无拒载/豁免标记 |
+| 用到的宿主接口 | `webServer.register` / `tapIndex`、`connection.authenticatedUrl` / `requestRejection`、settings 分区：全在 |
+| 注入依赖的官方 DOM | 浮轨 `nav` + `button[data-index]` + `markPreview`/`markActive`、侧栏 `data-row-key`：全在 |
+| 运行态 | 注入标记齐、首页带 `cache-control: no-store`、`/config` 与 `/devices` 200 |
+| 手机浮轨端到端 | 45 格；按住后依次滑到第 2/2/3/4/6/8/5 轮，标题、跳转按钮、蓝条逐轮一致，0 报错 |
+| 已发布 0.7.4 包与仓库比对 | README 中英 / CHANGELOG 与 `v0.7.4` 逐字一致；`lib/index.js` 哈希一致（构建可复现）；文件清单与 `files` 相符 |
+
 ## [0.7.4] — 2026-10-16（适配 DSH 0.2.1-alpha.5）
 
 **代码零改动**，只更新兼容声明、开发依赖与文档。

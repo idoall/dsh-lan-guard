@@ -6,7 +6,7 @@
   <a href="https://github.com/idoall/dsh-lan-guard/actions/workflows/ci.yml"><img src="https://github.com/idoall/dsh-lan-guard/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://www.npmjs.com/package/dsh-lan-guard"><img src="https://img.shields.io/npm/v/dsh-lan-guard?label=npm&color=CB3837" alt="npm version"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-0F172A" alt="MIT"></a>
-  <img src="https://img.shields.io/badge/DSH-0.2.1--alpha.5-4B6BFB" alt="DSH 0.2.1-alpha.5">
+  <img src="https://img.shields.io/badge/DSH-0.2.1--rc.2-4B6BFB" alt="DSH 0.2.1-rc.2">
 </p>
 
 <p align="center">English | <a href="README.zh.md">中文</a></p>
@@ -49,7 +49,7 @@ Requirements:
 
 - DeepSeek Harness with a Web profile
 - Node.js 20 or newer
-- Verified DeepSeek Harness: `0.2.1-alpha.5`
+- Verified DeepSeek Harness: `0.2.1-rc.2`
 
 Install from npm:
 
@@ -148,10 +148,11 @@ The plugin reads its config from its Cordis entry. **Every key has a usable defa
 
 ## Compatibility
 
-Current version: plugin **`0.7.4`**, compatible with DeepSeek Harness **`0.2.1-alpha.5`**. Each row below is one plugin release: the DSH versions it was verified against, and what that release did.
+Current version: plugin **`0.7.5`**, compatible with DeepSeek Harness **`0.2.1-rc.2`**. Each row below is one plugin release: the DSH versions it was verified against, and what that release did.
 
 | Plugin | Verified DeepSeek Harness | What this version is |
 | --- | --- | --- |
+| **`0.7.5`** | **`0.2.1-rc.2`**, `0.2.1-alpha.5`, `0.2.1-alpha.4`, `0.2.1-alpha.3`, `0.2.1-alpha.1`, `0.2.0-rc.2`, `0.2.0-rc.1`, `0.1.7-rc.2` | Keeps up with DSH `0.2.1-rc.2`: compatibility statement only, no code change. |
 | **`0.7.4`** | **`0.2.1-alpha.5`**, `0.2.1-alpha.4`, `0.2.1-alpha.3`, `0.2.1-alpha.1`, `0.2.0-rc.2`, `0.2.0-rc.1`, `0.1.7-rc.2` | Keeps up with DSH `0.2.1-alpha.5`: compatibility statement only, no code change. |
 | **`0.7.3`** | **`0.2.1-alpha.4`**, `0.2.1-alpha.3`, `0.2.1-alpha.1`, `0.2.0-rc.2`, `0.2.0-rc.1`, `0.1.7-rc.2` | Keeps up with DSH `0.2.1-alpha.4`: compatibility statement only, no code change. |
 | **`0.7.2`** | **`0.2.1-alpha.3`**, `0.2.1-alpha.1`, `0.2.0-rc.2`, `0.2.0-rc.1`, `0.1.7-rc.2` | Keeps up with DSH `0.2.1-alpha.3`: compatibility statement only, no code change. |
@@ -177,7 +178,7 @@ Current version: plugin **`0.7.4`**, compatible with DeepSeek Harness **`0.2.1-a
 | `0.1.1` | `0.1.7-rc.1` | Documentation release: bilingual user READMEs |
 | `0.1.0` | `0.1.7-rc.1` | First release: gated reverse proxy, self-signed HTTPS, device pairing, settings page, QR access |
 
-- Declared range `>=0.1.7-rc.1 <0.3.0` (`dsh.engines.dsh`); verified releases: `0.1.7-rc.1`, `0.1.7-rc.2`, `0.2.0-rc.1`, `0.2.0-rc.2`, `0.2.1-alpha.1`, `0.2.1-alpha.3`, `0.2.1-alpha.4`, `0.2.1-alpha.5`. DSH versions not listed are **unverified** — verify them yourself before use. The upper bound was widened from `<0.2.0` in `0.4.3` because profile load refuses a bundle whose range excludes the running release, and a plain `<0.2.0` would exclude the `0.2.0` stable.
+- Declared range `>=0.1.7-rc.1 <0.3.0` (`dsh.engines.dsh`); verified releases: `0.1.7-rc.1`, `0.1.7-rc.2`, `0.2.0-rc.1`, `0.2.0-rc.2`, `0.2.1-alpha.1`, `0.2.1-alpha.3`, `0.2.1-alpha.4`, `0.2.1-alpha.5`, `0.2.1-rc.2`. DSH versions not listed are **unverified** — verify them yourself before use. The upper bound was widened from `<0.2.0` in `0.4.3` because profile load refuses a bundle whose range excludes the running release, and a plain `<0.2.0` would exclude the `0.2.0` stable.
 - Host/client interfaces this plugin uses: `webServer.register` / `webServer.tapIndex` (indexTaps), `connection.requestRejection`, `connection.authenticatedUrl`, the additive `settings.section` seat, `@deepseek-ai/schemastery`, and `profileContext` (for deriving the default data directory).
 - **Breaking default change (from `0.3.2`)**: `listenHost` now defaults to `0.0.0.0` instead of `127.0.0.1`, so one restart after install is enough; `0.3.1` and earlier default to loopback only. The gate and self-signed TLS defaults are unchanged (with no password the gate still refuses every device). See the [CHANGELOG](CHANGELOG.md).
 - **`0.4.0` verification status**: all three changes carry measurements, not just specs.
