@@ -6,7 +6,7 @@
   <a href="https://github.com/idoall/dsh-lan-guard/actions/workflows/ci.yml"><img src="https://github.com/idoall/dsh-lan-guard/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://www.npmjs.com/package/dsh-lan-guard"><img src="https://img.shields.io/npm/v/dsh-lan-guard?label=npm&color=CB3837" alt="npm 版本"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-0F172A" alt="MIT"></a>
-  <img src="https://img.shields.io/badge/DSH-0.2.1--rc.2-4B6BFB" alt="DSH 0.2.1-rc.2">
+  <img src="https://img.shields.io/badge/DSH-0.2.1--rc.3-4B6BFB" alt="DSH 0.2.1-rc.3">
 </p>
 
 <p align="center"><a href="README.md">English</a> | 中文</p>
@@ -49,7 +49,7 @@ DSH 的 Web 界面只监听 `127.0.0.1`，而官方明确拒绝绑定 `0.0.0.0`�
 
 - 带 Web profile 的 DeepSeek Harness
 - Node.js 20 或更新
-- 已验证的 DeepSeek Harness：`0.2.1-rc.2`
+- 已验证的 DeepSeek Harness：`0.2.1-rc.3`（接口审查、类型检查与自动回归；rc.3 的手机/浏览器验收待完成）。
 
 从 npm 安装：
 
@@ -149,11 +149,12 @@ dsh plugin --profile web add "link:$(pwd)"
 
 ## 兼容性
 
-当前版本：插件 **`0.7.5`**，兼容 DeepSeek Harness **`0.2.1-rc.2`**。下表每行是一个插件版本：它验证过哪些 DSH 版本，以及那一版做了什么。
+当前版本：插件 **`0.7.6`**，兼容 DeepSeek Harness **`0.2.1-rc.3`**。下表每行是一个插件版本：它验证过哪些 DSH 版本，以及那一版做了什么。
 
 | 插件 | 已验证的 DeepSeek Harness | 这个版本是什么 |
 | --- | --- | --- |
-| **`0.7.5`** | **`0.2.1-rc.2`**、`0.2.1-alpha.5`、`0.2.1-alpha.4`、`0.2.1-alpha.3`、`0.2.1-alpha.1`、`0.2.0-rc.2`、`0.2.0-rc.1`、`0.1.7-rc.2` | 跟上 DSH `0.2.1-rc.2`：只更新兼容声明，代码没动。 |
+| **`0.7.6`** (latest) | **`0.2.1-rc.3`**、`0.2.1-rc.2`、`0.2.1-alpha.5`、`0.2.1-alpha.4`、`0.2.1-alpha.3`、`0.2.1-alpha.1`、`0.2.0-rc.2`、`0.2.0-rc.1`、`0.1.7-rc.2`、`0.1.7-rc.1` | 跟上 DSH `0.2.1-rc.3`，运行时代码不变。仅完成接口、类型与自动检查；手机/浏览器验收待完成。 |
+| **`0.7.5`** (published) | **`0.2.1-rc.2`**、`0.2.1-alpha.5`、`0.2.1-alpha.4`、`0.2.1-alpha.3`、`0.2.1-alpha.1`、`0.2.0-rc.2`、`0.2.0-rc.1`、`0.1.7-rc.2` | 跟上 DSH `0.2.1-rc.2`：只更新兼容声明，代码没动。 |
 | **`0.7.4`** | **`0.2.1-alpha.5`**、`0.2.1-alpha.4`、`0.2.1-alpha.3`、`0.2.1-alpha.1`、`0.2.0-rc.2`、`0.2.0-rc.1`、`0.1.7-rc.2` | 跟上 DSH `0.2.1-alpha.5`：只更新兼容声明，代码没动。 |
 | **`0.7.3`** | **`0.2.1-alpha.4`**、`0.2.1-alpha.3`、`0.2.1-alpha.1`、`0.2.0-rc.2`、`0.2.0-rc.1`、`0.1.7-rc.2` | 跟上 DSH `0.2.1-alpha.4`：只更新兼容声明，代码没动。 |
 | **`0.7.2`** | **`0.2.1-alpha.3`**、`0.2.1-alpha.1`、`0.2.0-rc.2`、`0.2.0-rc.1`、`0.1.7-rc.2` | 跟上 DSH `0.2.1-alpha.3`：只更新兼容声明，代码没动。 |
@@ -179,7 +180,7 @@ dsh plugin --profile web add "link:$(pwd)"
 | `0.1.1` | `0.1.7-rc.1` | 文档版：中英双语用户 README |
 | `0.1.0` | `0.1.7-rc.1` | 首个版本：门禁反向代理、自签 HTTPS、设备配对、设置页、扫码访问 |
 
-- 声明范围 `>=0.1.7-rc.1 <0.3.0`（`dsh.engines.dsh`）；已验证版本：`0.1.7-rc.1`、`0.1.7-rc.2`、`0.2.0-rc.1`、`0.2.0-rc.2`、`0.2.1-alpha.1`、`0.2.1-alpha.3`、`0.2.1-alpha.4`、`0.2.1-alpha.5`、`0.2.1-rc.2`。未列入的 DSH 版本属**未验证**，请自行验证后再使用。上界在 `0.4.3` 从 `<0.2.0` 放宽：profile 加载会拒绝范围不含运行版本的 bundle，而裸的 `<0.2.0` 恰好排除 `0.2.0` 正式版。
+- 声明范围 `>=0.1.7-rc.1 <0.3.0`（`dsh.engines.dsh`）；已验证版本：`0.1.7-rc.1`、`0.1.7-rc.2`、`0.2.0-rc.1`、`0.2.0-rc.2`、`0.2.1-alpha.1`、`0.2.1-alpha.3`、`0.2.1-alpha.4`、`0.2.1-alpha.5`、`0.2.1-rc.2`、`0.2.1-rc.3`（共 10 个版本，rc.3 验证范围见上文）。未列入的 DSH 版本属**未验证**，请自行验证后再使用。上界在 `0.4.3` 从 `<0.2.0` 放宽：profile 加载会拒绝范围不含运行版本的 bundle，而裸的 `<0.2.0` 恰好排除 `0.2.0` 正式版。
 - 本插件用到的宿主/客户端接口：`webServer.register` / `webServer.tapIndex`（indexTaps）、`connection.requestRejection`、`connection.authenticatedUrl`、追加型 `settings.section` seat、`@deepseek-ai/schemastery`，以及 `profileContext`（用于推导默认数据目录）。
 - **破坏性默认值变更（`0.3.2` 起）**：`listenHost` 默认由 `127.0.0.1` 改为 `0.0.0.0`，装完重启一次即可用；`0.3.1` 及更早默认仅回环。门禁与自签 TLS 的默认值未变（未设密码仍拒绝所有设备）。详见 [CHANGELOG](CHANGELOG.md)。
 - **`0.4.0` 的验证状态**：三处改动都做了实测，不只跑用例。
@@ -340,8 +341,8 @@ pnpm run verify    # 类型检查 + 测试 + 构建 + pack dry-run
 发版由 tag 驱动。更新 `package.json`、把对应 CHANGELOG 段落移出 `Unreleased`、编写带中英双锚点的 `release-notes/v<版本>.md` 后，推送发版提交与 tag：
 
 ```sh
-git tag v0.3.1
-git push origin v0.3.1
+git tag v0.7.6
+git push origin v0.7.6
 ```
 
 发版工作流会校验 tag 与 `package.json` 版本一致、要求发布说明含中英双锚点，然后运行 `pnpm run verify`、打包插件、通过 npm trusted publishing（OIDC）发布，并创建附带 tarball 的 GitHub Release。

@@ -59,7 +59,7 @@ const surfaces = [
       [`已验证行 = ${dshVersion}`, content => content.includes(`已验证的 DeepSeek Harness：\`${dshVersion}\``)],
       [`当前版本行 = ${pluginVersion} / ${dshVersion}`, content =>
         content.includes(`当前版本：插件 **\`${pluginVersion}\`**，兼容 DeepSeek Harness **\`${dshVersion}\`**`)],
-      ['兼容表有本版行', content => content.includes(`| **\`${pluginVersion}\`** |`)],
+      ['兼容表有本版行', content => content.includes(`| **\`${pluginVersion}\`** (latest) |`)],
       ['已验证清单含本版 DSH', content => new RegExp(`已验证版本：[^\\n]*\`${dshVersion.replace(/\./g, '\\.')}\``).test(content)],
     ],
   },
@@ -70,7 +70,7 @@ const surfaces = [
       [`verified line = ${dshVersion}`, content => content.includes(`Verified DeepSeek Harness: \`${dshVersion}\``)],
       [`current version line = ${pluginVersion} / ${dshVersion}`, content =>
         content.includes(`Current version: plugin **\`${pluginVersion}\`**, compatible with DeepSeek Harness **\`${dshVersion}\`**`)],
-      ['compatibility table has this release', content => content.includes(`| **\`${pluginVersion}\`** |`)],
+      ['compatibility table has this release', content => content.includes(`| **\`${pluginVersion}\`** (latest) |`)],
       ['verified list includes this DSH release', content =>
         new RegExp(`verified releases:[^\\n]*\`${dshVersion.replace(/\./g, '\\.')}\``).test(content)],
     ],
@@ -102,6 +102,18 @@ for (const surface of surfaces) {
   for (const [label, check] of surface.checks) {
     if (!check(content)) fail(`${surface.file}: ${label}`)
   }
+}
+
+// Require the complete EN/ZH declared lists to match package metadata, not just
+// the newest release, and reject stale copy/paste tag examples.
+for (const [file, label] of [['README.md', 'verified releases:'], ['README.zh.md', '已验证版本：']]) {
+  const content = read(file)
+  const line = content.split('\n').find(line => line.includes(label)) ?? ''
+  const list = line.slice(line.indexOf(label) + label.length).trim().match(/^(?:`[^`]+`(?:, |、)?)+/)?.[0] ?? ''
+  const versions = [...list.matchAll(/`(\d+\.\d+\.\d+(?:-[a-z]+\.\d+)?)`/g)]
+    .map(match => match[1]).sort(compareVersions)
+  if (JSON.stringify(versions) !== JSON.stringify(declared)) fail(`${file}: full verified release list differs from package.json`)
+  if (!content.includes(`git tag v${pluginVersion}\ngit push origin v${pluginVersion}`)) fail(`${file}: stale release tag example`)
 }
 
 // The DSH release the READMEs advertise must be the newest one declared, so a
