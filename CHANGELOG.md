@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.7.7] — 2026-10-27（适配 DSH 0.2.1-rc.4）
+
+**代码零改动**，只更新兼容声明、开发依赖与发布文档。
+
+- `dsh.compatibility.dshReleases` 增加 `0.2.1-rc.4: compatible`；支持范围仍为 `>=0.1.7-rc.1 <0.3.0`（`dsh.engines.dsh`），上界 `<0.3.0` 已覆盖 rc.4，无需放宽。
+- 开发依赖 `@deepseek-ai/dsh-host-webserver`、`@deepseek-ai/dsh-client-connection`、`@deepseek-ai/dsh-scope` 与 `pnpm-lock.yaml` 同步到 `0.2.1-rc.4`，用 rc.4 的真实类型跑检查与回归。
+- 逐包比对了 rc.3 → rc.4 的 npm 产物：本插件用到的宿主/客户端包（webserver、connection、client-ui-renderer/layout/settings/settings-general、scope）**除版本字符串外内容逐字节一致**，DSH CLI 的 `lib` 也完全相同；`dsh-client-ui-settings-general` 的 `client.js` 只改了「设置 → 通用」里显示的 DSH 版本号。因此 rc.4 对插件没有接口或行为变更。
+- 用 rc.4 类型重新构建的 4 个 `lib` 文件（`index.js`、`index.d.ts`、`client.js`、`client.js.map`）与已发布的 `0.7.6` tarball 内文件 **SHA-256 完全相同**，证明改动只落在声明与文档，构建可复现。
+- 运行态核对（本机正在跑的 rc.4 实例；profile 里装的是 `0.7.6`，其 `lib` 与本版逐字节相同）：`dsh --profile web --dump-config` exit 0，插件与已存配置正常合成、无拒载或版本豁免标记；局域网入口（`https://<lan>:3081/`）返回 200 且注入了本插件的客户端补丁与 `client.js`；`/plugins/dsh-lan-guard/config` 与 `/devices` 均返回 200 并带回真实数据。
+- 门禁：`pnpm run typecheck` 通过；23 个测试文件、386 项用例全绿；构建与 `npm pack --dry-run` 通过，包内清单与仓库一致。
+- 两版 README 五处同步到 `0.7.7` / `0.2.1-rc.4`：徽章、「已验证的 DeepSeek Harness」、当前版本句、兼容表（新增 latest 行、`0.7.6` 转为 published）、11 个已验证版本的完整清单，发版 tag 示例同步为 `v0.7.7`。
+- 未做：rc.4 的手机/浏览器交互验收（触摸、锁屏、语音）。本版不把 rc.3 的端到端结论冒充成 rc.4 实测。
+
+**rc.4 核查结果**：
+
+| 检查 | 结果 |
+| --- | --- |
+| npm 产物 rc.3 → rc.4 差异 | 6 个宿主/客户端包仅版本号不同；CLI `lib` 一致；settings-general 仅显示版本字符串 |
+| 类型检查（rc.4 `.d.ts`） | 通过 |
+| 自动回归 | 23 文件 / 386 用例全绿 |
+| 构建可复现 | 4 个 `lib` 文件与 `0.7.6` tarball SHA-256 相同 |
+| `--dump-config` | exit 0，插件在合成树中，无拒载/豁免 |
+| 运行态 | LAN 入口 200、顶部补丁注入、`/config` 与 `/devices` 200 |
+
 ## [0.7.6] — 2026-10-23（适配 DSH 0.2.1-rc.3）
 
 插件运行时代码不变；同步兼容声明、开发依赖与发布文档。
