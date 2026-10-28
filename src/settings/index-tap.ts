@@ -271,6 +271,62 @@ export const TURN_RAIL_DIAG_ID = 'lgtr'
 export const TURN_RAIL_CARD_ID = 'lg-turn-card'
 
 /**
+ * Every `chat.turnNavigation.label` DSH 0.2.2 ships, one per UI language.
+ *
+ * The official rail is a `<nav>` whose CSS-module class is hashed, so its
+ * `aria-label` is the only stable attribute — and DSH localises it. 0.2.2 grew
+ * the shipped catalog from Chinese/English to eight locales; a zh/en-only
+ * selector silently stopped matching the moment a user picked Japanese, Spanish,
+ * French, German, Russian or Portuguese: the rail stayed cramped and the phone
+ * gesture layer never attached. Every shipped label is listed here so the patch
+ * keeps working whatever language the page is in.
+ */
+export const TURN_RAIL_LABELS = [
+  '轮次导航',
+  'Turn navigation',
+  'ターン移動',
+  'Navegación por turnos',
+  'Navigation entre les tours',
+  'Rundennavigation',
+  'Навигация по ходам',
+  'Navegação entre turnos',
+] as const
+
+/**
+ * Selectors for the official rail.
+ *
+ * `nav[data-lg-turn-nav]` is the structural seat: when DSH adds a language that
+ * {@link TURN_RAIL_LABELS} does not name yet, the scripts find the rail by its
+ * `button[data-index]` marks, tag it, and every rule below starts applying to it
+ * without a new release.
+ */
+const TURN_RAIL_NAV_SELECTORS = [
+  ...TURN_RAIL_LABELS.map(label => `nav[aria-label="${label}"]`),
+  'nav[data-lg-turn-nav]',
+]
+
+/** The rail itself, for display and layout. */
+const TURN_RAIL_SELECTOR = TURN_RAIL_NAV_SELECTORS.join(',')
+
+/** Everything inside the rail: the touch-action/overscroll containment. */
+const TURN_RAIL_DESCENDANT_SELECTOR = TURN_RAIL_NAV_SELECTORS.map(selector => `${selector} *`).join(',')
+
+/** The tick marks: one readable height instead of DSH's 2px hairline. */
+const TURN_RAIL_TICK_SELECTOR = TURN_RAIL_NAV_SELECTORS
+  .map(selector => `${selector} button[data-index]::before`).join(',')
+
+/** The official hover bubble, hidden while this plugin's card is open. */
+const TURN_RAIL_TOOLTIP_SELECTOR = TURN_RAIL_NAV_SELECTORS
+  .map(selector => `${selector}[data-lg-turn-card] [role="tooltip"]`).join(',')
+
+/** The hovered mark, promoted to a visible brand-coloured bar during a scrub. */
+const TURN_RAIL_PREVIEW_SELECTOR = TURN_RAIL_NAV_SELECTORS
+  .map(selector => `${selector}[data-lg-turn-card] button[class*="_markP"]::before`).join(',')
+
+/** Embed `text` as the body of a double-quoted JavaScript string literal. */
+const jsString = (text: string): string => JSON.stringify(text).slice(1, -1)
+
+/**
  * The phone-only touch layer for the turn rail.
  *
  * The official rail is a HOVER design: the preview bubble is driven by
@@ -314,7 +370,21 @@ export function mobileTurnRailTouchScript(): string {
   var tipObserver=null,navObserver=null,markObserver=null,tipNode=null,tipPoll=0,settleTimer=0;
   var tipBaseline="",tipGeneration=0,tipCache={},cacheNav=null;
   function one(sel,root){try{return (root||doc).querySelector(sel)}catch(e){return null}}
-  function navOf(node){try{return node&&node.closest?node.closest(SEL):null}catch(e){return null}}
+  function navOf(node){
+    try{
+      var n=node&&node.closest?node.closest(SEL):null;
+      if(n)return n;
+      /* A language DSH added after this release: the rail is still the only
+         <nav> whose marks carry data-index, so tag it and let the rules that
+         list nav[data-lg-turn-nav] take over. */
+      var c=node&&node.closest?node.closest('nav'):null;
+      if(c&&c.querySelector&&c.querySelector('button[data-index]')){
+        try{c.setAttribute('data-lg-turn-nav','1')}catch(e){}
+        return c;
+      }
+      return null;
+    }catch(e){return null}
+  }
   // Official TurnNavigator marks carry data-index; card controls do not.
   function marks(){return nav?nav.querySelectorAll("button[data-index]"):[]}
   function el(tag,style,text){
@@ -755,9 +825,10 @@ export function mobileTurnRailTouchScript(): string {
  *
  * - the override lives in a `@media (max-width: 1023px)` block, so a desktop
  *   window is never touched;
- * - the selector is attribute-based (`nav[aria-label="轮次导航"]` /
- *   `"Turn navigation"`) plus one structural fallback, because a CSS-module
- *   class name is hashed; the labelled rule nudges the rail into the chat
+ * - the selector is attribute-based (`nav[aria-label="…"]`, one per UI language
+ *   DSH ships — eight as of 0.2.2, listed in {@link TURN_RAIL_LABELS}) plus a
+ *   structural fallback, because a CSS-module class name is hashed and DSH
+ *   localises the label; the labelled rule nudges the rail into the chat
  *   frame's right gutter (`right:4px`, `width:28px`) so it does not overlap the
  *   message column;
  * - it SELF-CHECKS: if the rail is found but stays invisible while the override
@@ -800,8 +871,10 @@ export function mobileTurnRailScript(): string {
     + '(doc.body||doc.documentElement).appendChild(p)}'
     + 'p.textContent="[lan-guard 轮次导航诊断]"+String.fromCharCode(10)+lines.join(String.fromCharCode(10))}catch(e){}}'
     // The official rail is a <nav> whose only stable attribute is its aria-label,
-    // which DSH localises; the structural rule below survives a rename.
-    + 'var SEL="nav[aria-label=\\"轮次导航\\"],nav[aria-label=\\"Turn navigation\\"]";'
+    // which DSH localises into eight languages as of 0.2.2; TURN_RAIL_LABELS
+    // carries every shipped label, and the structural rules below survive a
+    // rename or a language added later.
+    + 'var SEL=' + JSON.stringify(TURN_RAIL_SELECTOR) + ';'
     + 'if(!doc.getElementById("' + TURN_RAIL_STYLE_ID + '")){'
     + 'var st=doc.createElement("style");st.id="' + TURN_RAIL_STYLE_ID + '";'
     + 'st.appendChild(doc.createTextNode("@media (max-width: 1023px){"+SEL'
@@ -824,20 +897,18 @@ export function mobileTurnRailScript(): string {
     // mid-scrub (measured on device: the card advances ~2 ticks, then the whole
     // page drags/refreshes). Cover the whole subtree, and make the phone stop
     // treating a downward drag at scrollTop 0 as a reload.
-    + '+"nav[aria-label=\\"轮次导航\\"] *,nav[aria-label=\\"Turn navigation\\"] *'
+    + '+"' + jsString(TURN_RAIL_DESCENDANT_SELECTOR)
     + '{touch-action:none!important;overscroll-behavior:contain!important}"'
     + '+"html,body{overscroll-behavior-y:none!important}"'
-    + '+"nav[aria-label=\\"轮次导航\\"] button[data-index]::before,'
-    + 'nav[aria-label=\\"Turn navigation\\"] button[data-index]::before{height:3px!important}"'
-    + '+"nav[aria-label=\\"轮次导航\\"][data-lg-turn-card] [role=\\"tooltip\\"],'
-    + 'nav[aria-label=\\"Turn navigation\\"][data-lg-turn-card] [role=\\"tooltip\\"]{visibility:hidden!important;opacity:0!important;pointer-events:none!important}"'
+    + '+"' + jsString(TURN_RAIL_TICK_SELECTOR) + '{height:3px!important}"'
+    + '+"' + jsString(TURN_RAIL_TOOLTIP_SELECTOR)
+    + '{visibility:hidden!important;opacity:0!important;pointer-events:none!important}"'
     // While the card is open the official component marks the hovered tick with
     // its `markPreview` class, whose resting style is a 0.9-scale grey hairline —
     // invisible under a finger. Promote it to a full-length brand-coloured bar so
     // the user can SEE the selection follow the drag (the black active tick keeps
     // showing where the transcript actually is).
-    + '+"nav[aria-label=\\"轮次导航\\"][data-lg-turn-card] button[class*=\\"_markP\\"]::before,'
-    + 'nav[aria-label=\\"Turn navigation\\"][data-lg-turn-card] button[class*=\\"_markP\\"]::before{'
+    + '+"' + jsString(TURN_RAIL_PREVIEW_SELECTOR) + '{'
     + 'transform:translateY(-50%) scaleX(1)!important;'
     + 'background:var(--dsw-alias-state-business-primary,#3964fe)!important;'
     + 'opacity:1!important}"'
@@ -848,7 +919,15 @@ export function mobileTurnRailScript(): string {
     + 'var narrow=false;try{narrow=!!(S.matchMedia&&S.matchMedia("(max-width: 1023px)").matches)}catch(e){}'
     + 'log("narrow="+narrow);'
     + 'var tries=0,misses=0,done=false;'
-    + 'function rail(){try{return doc.querySelector(SEL)}catch(e){return null}}'
+    + 'function rail(){'
+    + 'var n=null;try{n=doc.querySelector(SEL)}catch(e){}if(n)return n;'
+    // A language DSH added after this release: the rail is still the only <nav>
+    // whose marks carry data-index. Tagging it here makes the rules above (which
+    // list nav[data-lg-turn-nav]) start applying without a new release.
+    + 'try{var all=doc.querySelectorAll("nav");for(var i=0;i<all.length;i++){var c=all[i];'
+    + 'if(c.querySelector&&c.querySelector("button[data-index]")){'
+    + 'try{c.setAttribute("data-lg-turn-nav","1")}catch(e){}return c}}}catch(e){}'
+    + 'return null}'
     + 'function visible(n){try{var cs=getComputedStyle(n),r=n.getBoundingClientRect();'
     + 'return cs.display!=="none"&&r.width>1&&r.height>1}catch(e){return false}}'
     + 'function revert(){try{var s=doc.getElementById("' + TURN_RAIL_STYLE_ID + '");'

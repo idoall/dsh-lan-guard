@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.7.8] — 2026-10-28（适配 DSH 0.2.2-alpha.2）
+
+兼容声明 + 一处跟随上游多语言界面的修复。
+
+- `dsh.compatibility.dshReleases` 增加 `0.2.2-alpha.2: compatible`；支持范围仍为 `>=0.1.7-rc.1 <0.3.0`（`dsh.engines.dsh`），上界已覆盖 0.2.2-alpha.2，无需放宽。
+- 开发依赖同步到 `0.2.2-alpha.2`（`dsh-host-webserver`、`dsh-client-connection`、`dsh-scope`），并按新宿主包的 peer 要求把 `@deepseek-ai/cordis` → `4.0.6-alpha.1`、`@deepseek-ai/schemastery` → `3.18.6-alpha.1`；peer 范围未变。
+- 逐包比对 rc.4 → 0.2.2-alpha.2 的 npm 产物：这是一次**有真实改动**的升级。`dsh-host-webserver` 新增 per-Peer 的 `webserver/index-inject` 参数、`WebResource` / `WebResourceRoute` / `readResource`，`renderIndex` / `collectIndexInjections` 增加 `peer` 参数；`dsh-client-connection` 客户端契约新增可选 `resolveAsset`；`dsh-client-ui-layout`、`dsh-client-ui-settings-general` 增加 6 种语言字典（另有 `fullscreen-timeout` 更新提示文案）；`dsh-client-ui-renderer`、`dsh-client-ui-settings`、`dsh-scope` 仅版本与 locale 资源变化。本插件用到的 `register` / `tapIndex` / `requestRejection` / `authenticatedUrl` 签名均未变。
+- **修复**：官方轮次浮轨的 `aria-label` 在 0.2.2 被本地化成 8 种语言（中、英、日、西、法、德、俄、葡），而插件只匹配中/英，切到其他语言时手机浮轨不再贴边、按住预览失效。现改为匹配全部 8 种标签，并加结构化兜底（找到唯一带 `button[data-index]` 的 `<nav>` 并打 `data-lg-turn-nav` 标记），将来 DSH 再加语言无需再发版。
+- 未采用 0.2.2 的 `resource` 路由与 `readResource`：它们不暴露客户端 socket，而门禁与 `adminPolicy: local_only` 依赖远端地址，采用会削弱安全边界；per-Peer 注入只影响 fallback 渲染，本插件不拥有 fallback。
+- 测试 386 → 388：新增「选择器覆盖 8 种语言标签」「未知语言下靠结构兜底找到并标记浮轨」两项。类型检查、构建、`npm pack --dry-run` 均通过。
+- 真实 Chrome（窄视口）复核：中、日、未知三种标签的浮轨均得到 `display:block` / `width:28px` / `right:4px`，刻度 `touch-action:none`；未知语言被标记 `data-lg-turn-nav=1`；`data-lg-turn-card` 时官方 tooltip 隐藏。
+- 运行态（实例运行 0.2.2-alpha.2，装的是 `0.7.6`，与本版差异只在浮轨定位）：`dsh --profile web --dump-config` exit 0 且插件在合成树中；LAN 入口 200、客户端补丁注入、`/plugins/dsh-lan-guard/config` 与 `/devices` 返回真实数据。
+- 两版 README 六处同步到 `0.7.8` / `0.2.2-alpha.2`：徽章、已验证行、当前版本句、兼容表（新增 latest 行、`0.7.7` 转 published）、12 个已验证版本清单、发版 tag 示例；并新增一条「0.2.2 新能力评估」。
+- 未做：手机实机验收（触摸、锁屏、语音）；插件设置页的多语言翻译 —— DSH 已支持 8 种语言，但面板仍是中文，留到下一版处理。
+
+**0.2.2 核查结果**：
+
+| 检查 | 结果 |
+| --- | --- |
+| 本插件用到的宿主接口 | `webServer.register` / `tapIndex` / `port`、`connection.requestRejection` / `authenticatedUrl`：签名未变 |
+| 0.2.2 新增能力 | per-Peer 注入、`resource` 路由、`readResource`、客户端 `resolveAsset`、7→8 语言：已评估，仅采用多语言标签 |
+| 多语言浮轨 | 8 种标签全覆盖 + 未知语言结构化兜底，真实 Chrome 验证 |
+| 类型检查（0.2.2-alpha.2 `.d.ts`） | 通过 |
+| 自动回归 | 23 文件 / 388 用例全绿 |
+| 构建与打包 | 通过；`npm pack` 清单与 `files` 一致 |
+| `--dump-config` | exit 0，插件在合成树中，无拒载/豁免 |
+| 运行态 | LAN 入口 200、补丁注入、`/config` 与 `/devices` 200 |
+
 ## [0.7.7] — 2026-10-27（适配 DSH 0.2.1-rc.4）
 
 **代码零改动**，只更新兼容声明、开发依赖与发布文档。

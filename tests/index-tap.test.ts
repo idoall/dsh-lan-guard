@@ -619,6 +619,8 @@ interface TurnRailEnvOptions {
   /** What `'(pointer: coarse)'` reports; decides whether the gesture layer installs. */
   coarse?: boolean
   nav?: 'absent' | 'hidden' | 'visible'
+  /** The rail's aria-label; DSH localises it, one per shipped UI language. */
+  label?: string
   /** The rail's marks, by aria-label. Defaults to three loaded turns. */
   marks?: readonly string[]
   /** Text the official tooltip renders after a mark receives its hover signal. */
@@ -654,7 +656,7 @@ function turnRailEnv(options: TurnRailEnvOptions = {}) {
   if (nav !== null) {
     nav.display = options.nav === 'hidden' ? 'none' : 'block'
     if (options.nav === 'hidden') { nav.width = 0; nav.height = 0 }
-    nav.setAttribute('aria-label', '轮次导航')
+    nav.setAttribute('aria-label', options.label ?? '轮次导航')
     nav.left = 401
     nav.top = 355
     nav.width = 28
@@ -724,7 +726,16 @@ function turnRailEnv(options: TurnRailEnvOptions = {}) {
       return node
     },
     getElementById: (id: string) => created.find(element => element.id === id) ?? null,
-    querySelector: (selector: string) => (selector.includes('轮次导航') || selector.includes('Turn navigation') ? nav : null),
+    // The real selector names the rail by its localised aria-label (or by the
+    // structural tag the script adds for a language it does not know yet), so
+    // the fake resolves exactly those two forms and nothing else.
+    querySelector: (selector: string) => {
+      if (nav === null) return null
+      if (selector.includes('nav[data-lg-turn-nav]') && nav.attrs['data-lg-turn-nav'] !== undefined) return nav
+      const label = nav.attrs['aria-label'] ?? ''
+      return label !== '' && selector.includes(`nav[aria-label="${label}"]`) ? nav : null
+    },
+    querySelectorAll: (selector: string) => (selector === 'nav' && nav !== null ? [nav] : []),
     addEventListener: (type: string, listener: (event: Record<string, unknown>) => void) => {
       if (options.brokenListeners === true) throw new Error('addEventListener is unavailable')
       const list = documentListeners.get(type) ?? []
@@ -877,6 +888,42 @@ describe('injectMobileTurnRail', () => {
     expect(body).toContain('swallowNextClick')
     // Idempotent.
     expect(injectMobileTurnRail(out)).toBe(out)
+  })
+
+  it('matches the rail label in every UI language DSH 0.2.2 ships', () => {
+    const body = scriptBody(mobileTurnRailScript())
+    // DSH localises `chat.turnNavigation.label`, and 0.2.2 grew the catalog from
+    // Chinese/English to eight locales. A zh/en-only selector silently stopped
+    // matching six of them, which left the rail cramped and the phone gesture
+    // layer unattached, so every shipped label has to name the rail.
+    for (const label of [
+      '轮次导航', 'Turn navigation', 'ターン移動', 'Navegación por turnos',
+      'Navigation entre les tours', 'Rundennavigation', 'Навигация по ходам', 'Navegação entre turnos',
+    ]) {
+      expect(body).toContain('nav[aria-label=\\"' + label + '\\"]')
+    }
+    // And the structural seat for a language added after this release.
+    expect(body).toContain('nav[data-lg-turn-nav]')
+  })
+
+  it('tags and uses the rail under a UI language it does not know yet', () => {
+    vi.useFakeTimers()
+    try {
+      // "Turns" is not in DSH 0.2.2's catalog: the labelled selector misses, and
+      // only the structural fallback (the <nav> whose marks carry data-index)
+      // can find the rail.
+      const env = turnRailEnv({ nav: 'visible', label: 'Turns' })
+      installTurnRail(env)
+      expect(env.nav?.attrs['data-lg-turn-nav']).toBe('1')
+      expect(env.styles()).toHaveLength(1)
+
+      env.dispatch('pointerdown', { target: env.marks[1], clientY: 5 })
+      vi.advanceTimersByTime(420)
+      expect(env.cardParts()?.card.style.display).toBe('block')
+      expect(env.cardParts()?.title?.textContent).toBe('预览里的提问')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('is applied by the registrar only while its switch is on', () => {

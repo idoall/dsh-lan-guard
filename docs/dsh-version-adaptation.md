@@ -52,6 +52,12 @@ done
 | `0.2.0-rc.2` | `ui-renderer/src/client/scoped-slots.tsx` 把 `nextAncestors` 提前到 `useMemo`（修 React hooks 顺序） | 本插件不注册 slot 组件 |
 | `0.2.1-alpha.1` | `ui-layout` 把 frame 的网格行从 `100%` 改成 `minmax(0,1fr) auto`、新增 `shell.bottom` 槽与 `.bottomRow`；`ui-renderer` 删掉 `invariant.ts` | 本插件只占 `settings.section`，不渲染 `shell.bottom`；全仓只有 `experimental/inspector` 用它 ⇒ 实测该行为 `[0,844,390,0]`，不占高度 |
 
+第三个坑不在源码 diff 里，而在**界面文案**：`0.2.2` 把 UI 从 2 种语言扩到 8 种，官方轮次浮轨的
+`aria-label` 也跟着变，而本插件的手机浮轨正是靠这个属性认 `<nav>`。逐包 diff 只会看到
+`locale/*.json` 和 `client.js` 里的字典，看不出「选择器会失效」。所以第 5 步的窄屏判据要加一条：
+**把界面语言切到非中文/英文（例如日文）再跑一次浮轨**；更稳的做法是让补丁对未知语言也有
+结构化兜底（按「唯一带 `button[data-index]` 的 `<nav>`」认），而不是只堆标签列表。
+
 ## 第 3 步：符号存在性核对
 
 ```sh

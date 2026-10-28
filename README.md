@@ -6,7 +6,7 @@
   <a href="https://github.com/idoall/dsh-lan-guard/actions/workflows/ci.yml"><img src="https://github.com/idoall/dsh-lan-guard/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://www.npmjs.com/package/dsh-lan-guard"><img src="https://img.shields.io/npm/v/dsh-lan-guard?label=npm&color=CB3837" alt="npm version"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-0F172A" alt="MIT"></a>
-  <img src="https://img.shields.io/badge/DSH-0.2.1--rc.4-4B6BFB" alt="DSH 0.2.1-rc.4">
+  <img src="https://img.shields.io/badge/DSH-0.2.2--alpha.2-4B6BFB" alt="DSH 0.2.2-alpha.2">
 </p>
 
 <p align="center">English | <a href="README.zh.md">中文</a></p>
@@ -49,7 +49,7 @@ Requirements:
 
 - DeepSeek Harness with a Web profile
 - Node.js 20 or newer
-- Verified DeepSeek Harness: `0.2.1-rc.4` (API review, type checking and automated regression, plus config load, LAN entry, client injection and management endpoints checked on a running rc.4 instance (running `0.7.6`, whose `lib` is byte-identical to this release); phone/browser interaction acceptance on rc.4 is still pending).
+- Verified DeepSeek Harness: `0.2.2-alpha.2` (API review, type checking and automated regression, plus config load, LAN entry, client injection and management endpoints checked on a running `0.2.2-alpha.2` instance; that instance runs `0.7.6`, whose only difference from this release is how the phone turn rail is located — and that fix was verified in real Chrome against a standalone page for a Chinese, a Japanese and an unknown label; on-device acceptance is still pending).
 
 Install from npm:
 
@@ -148,11 +148,12 @@ The plugin reads its config from its Cordis entry. **Every key has a usable defa
 
 ## Compatibility
 
-Current version: plugin **`0.7.7`**, compatible with DeepSeek Harness **`0.2.1-rc.4`**. Each row below is one plugin release: the DSH versions it was verified against, and what that release did.
+Current version: plugin **`0.7.8`**, compatible with DeepSeek Harness **`0.2.2-alpha.2`**. Each row below is one plugin release: the DSH versions it was verified against, and what that release did.
 
 | Plugin | Verified DeepSeek Harness | What this version is |
 | --- | --- | --- |
-| **`0.7.7`** (latest) | **`0.2.1-rc.4`**, `0.2.1-rc.3`, `0.2.1-rc.2`, `0.2.1-alpha.5`, `0.2.1-alpha.4`, `0.2.1-alpha.3`, `0.2.1-alpha.1`, `0.2.0-rc.2`, `0.2.0-rc.1`, `0.1.7-rc.2`, `0.1.7-rc.1` | Keeps up with DSH `0.2.1-rc.4`: this upstream release only bumps version strings, and the host interfaces and types are byte-identical to rc.3; no plugin runtime code changed. |
+| **`0.7.8`** (latest) | **`0.2.2-alpha.2`**, `0.2.1-rc.4`, `0.2.1-rc.3`, `0.2.1-rc.2`, `0.2.1-alpha.5`, `0.2.1-alpha.4`, `0.2.1-alpha.3`, `0.2.1-alpha.1`, `0.2.0-rc.2`, `0.2.0-rc.1`, `0.1.7-rc.2`, `0.1.7-rc.1` | Keeps up with DSH `0.2.2-alpha.2`: the new UI localises the turn navigator's label into eight languages, so the phone rail now finds it without depending on copy (with a structural fallback for languages added later); the rest is compatibility statements and docs. |
+| **`0.7.7`** (published) | **`0.2.1-rc.4`**, `0.2.1-rc.3`, `0.2.1-rc.2`, `0.2.1-alpha.5`, `0.2.1-alpha.4`, `0.2.1-alpha.3`, `0.2.1-alpha.1`, `0.2.0-rc.2`, `0.2.0-rc.1`, `0.1.7-rc.2`, `0.1.7-rc.1` | Keeps up with DSH `0.2.1-rc.4`: this upstream release only bumps version strings, and the host interfaces and types are byte-identical to rc.3; no plugin runtime code changed. |
 | **`0.7.6`** (published) | **`0.2.1-rc.3`**, `0.2.1-rc.2`, `0.2.1-alpha.5`, `0.2.1-alpha.4`, `0.2.1-alpha.3`, `0.2.1-alpha.1`, `0.2.0-rc.2`, `0.2.0-rc.1`, `0.1.7-rc.2`, `0.1.7-rc.1` | Compatibility release for DSH `0.2.1-rc.3`; no runtime code change. API/type/automated checks only; phone/browser acceptance pending. |
 | **`0.7.5`** (published) | **`0.2.1-rc.2`**, `0.2.1-alpha.5`, `0.2.1-alpha.4`, `0.2.1-alpha.3`, `0.2.1-alpha.1`, `0.2.0-rc.2`, `0.2.0-rc.1`, `0.1.7-rc.2` | Keeps up with DSH `0.2.1-rc.2`: compatibility statement only, no code change. |
 | **`0.7.4`** | **`0.2.1-alpha.5`**, `0.2.1-alpha.4`, `0.2.1-alpha.3`, `0.2.1-alpha.1`, `0.2.0-rc.2`, `0.2.0-rc.1`, `0.1.7-rc.2` | Keeps up with DSH `0.2.1-alpha.5`: compatibility statement only, no code change. |
@@ -180,7 +181,8 @@ Current version: plugin **`0.7.7`**, compatible with DeepSeek Harness **`0.2.1-r
 | `0.1.1` | `0.1.7-rc.1` | Documentation release: bilingual user READMEs |
 | `0.1.0` | `0.1.7-rc.1` | First release: gated reverse proxy, self-signed HTTPS, device pairing, settings page, QR access |
 
-- Declared range `>=0.1.7-rc.1 <0.3.0` (`dsh.engines.dsh`); verified releases: `0.1.7-rc.1`, `0.1.7-rc.2`, `0.2.0-rc.1`, `0.2.0-rc.2`, `0.2.1-alpha.1`, `0.2.1-alpha.3`, `0.2.1-alpha.4`, `0.2.1-alpha.5`, `0.2.1-rc.2`, `0.2.1-rc.3`, `0.2.1-rc.4` (11 releases; the rc.4 verification scope is described above). DSH versions not listed are **unverified** — verify them yourself before use. The upper bound was widened from `<0.2.0` in `0.4.3` because profile load refuses a bundle whose range excludes the running release, and a plain `<0.2.0` would exclude the `0.2.0` stable.
+- Declared range `>=0.1.7-rc.1 <0.3.0` (`dsh.engines.dsh`); verified releases: `0.1.7-rc.1`, `0.1.7-rc.2`, `0.2.0-rc.1`, `0.2.0-rc.2`, `0.2.1-alpha.1`, `0.2.1-alpha.3`, `0.2.1-alpha.4`, `0.2.1-alpha.5`, `0.2.1-rc.2`, `0.2.1-rc.3`, `0.2.1-rc.4`, `0.2.2-alpha.2` (12 releases; the `0.2.2-alpha.2` verification scope is described above). DSH versions not listed are **unverified** — verify them yourself before use. The upper bound was widened from `<0.2.0` in `0.4.3` because profile load refuses a bundle whose range excludes the running release, and a plain `<0.2.0` would exclude the `0.2.0` stable.
+- **New in 0.2.2, evaluated**: the per-Peer `webserver/index-inject` emit, `resource` routes and `readResource` are all new; this plugin does not use them — the first only affects fallback rendering, and the other two expose no client socket, while the gate and the "local only" policy depend on the remote address. What it *did* adopt is the multi-language UI: the phone rail now recognises all eight DSH languages, with a structural fallback for any language added later.
 - Host/client interfaces this plugin uses: `webServer.register` / `webServer.tapIndex` (indexTaps), `connection.requestRejection`, `connection.authenticatedUrl`, the additive `settings.section` seat, `@deepseek-ai/schemastery`, and `profileContext` (for deriving the default data directory).
 - **Breaking default change (from `0.3.2`)**: `listenHost` now defaults to `0.0.0.0` instead of `127.0.0.1`, so one restart after install is enough; `0.3.1` and earlier default to loopback only. The gate and self-signed TLS defaults are unchanged (with no password the gate still refuses every device). See the [CHANGELOG](CHANGELOG.md).
 - **`0.4.0` verification status**: all three changes carry measurements, not just specs.
@@ -341,8 +343,8 @@ The client half registers into the official additive `settings.section` seat; th
 Releases are tag-driven. Update `package.json`, move the matching CHANGELOG section out of `Unreleased`, write `release-notes/v<version>.md` with both language anchors, then push the release commit and tag:
 
 ```sh
-git tag v0.7.7
-git push origin v0.7.7
+git tag v0.7.8
+git push origin v0.7.8
 ```
 
 The release workflow checks that the tag matches the `package.json` version and that the notes carry both anchors, then runs `pnpm run verify`, packs the plugin, publishes through npm trusted publishing (OIDC), and creates a GitHub Release with the tarball attached.
