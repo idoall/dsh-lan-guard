@@ -147,7 +147,8 @@ function officialPick(ctx: DirectoryFlowContext): (() => Promise<string | null>)
  * from 620px up.
  */
 const FLOW_CSS = `
-.lgp-scrim{position:fixed;inset:0;z-index:2147483000;display:flex;align-items:flex-end;justify-content:center;
+.lgp-scrim{position:fixed;inset:0;margin:0;border:0;padding:0;box-sizing:border-box;
+  width:100%;height:100%;max-width:none;max-height:none;z-index:2147483000;display:flex;align-items:flex-end;justify-content:center;
   background:color-mix(in srgb, var(--dsw-alias-bg-mask,#000) 46%, transparent);backdrop-filter:blur(6px);
   -webkit-backdrop-filter:blur(6px)}
 /*
@@ -232,6 +233,7 @@ export function DirectoryFlow(props: FlowProps): ReactElement | null {
   const latest = useRef(props)
   latest.current = props
   const armed = useRef(false)
+  const dialog = useRef<HTMLDialogElement | null>(null)
   const alive = useRef(true)
   const [listing, setListing] = useState<BrowseListingView | null>(null)
   const [notice, setNotice] = useState<PickerNotice | null>(null)
@@ -312,22 +314,31 @@ export function DirectoryFlow(props: FlowProps): ReactElement | null {
     load(undefined)
   }, [open, pick, load])
 
-  // Escape cancels, matching the owner's own dialogs.
+  // alpha.3's mobile sidebar is transformed and clips descendants. A modal
+  // dialog enters the browser top layer without moving DOM outside our slot.
+  // Keep one dialog through loading/busy states; React owns its full lifetime.
   useEffect(() => {
-    if (!open) return undefined
-    const onKey = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') latest.current.onCancel()
-    }
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('keydown', onKey)
-    }
+    const node = dialog.current
+    if (!open || node === null) return undefined
+    node.showModal()
+    return () => { node.close() }
   }, [open])
+
+  const cancelDialog = (event: { preventDefault(): void; stopPropagation(): void }): void => {
+    // The owner controls `open`; do not let native Escape close it independently
+    // or bubble into the sidebar's own Escape handler.
+    event.preventDefault()
+    event.stopPropagation()
+    if (latest.current.busy !== true) latest.current.onCancel()
+  }
 
   if (!open) return null
   if (directoryFlowDecision(readClientEnvironment()) !== 'browse') return null
   if (props.busy === true) {
-    return createElement('div', { className: 'lgp-scrim' }, [
+    return createElement('dialog', { className: 'lgp-scrim', key: 'scrim', ref: dialog,
+      'aria-label': '正在添加工作区', onCancel: cancelDialog,
+      onKeyDown: (event: { key: string; stopPropagation(): void }) => { if (event.key === 'Escape') event.stopPropagation() },
+    }, [
       createElement('style', { key: 'css' }, FLOW_CSS),
       createElement('div', { className: 'lgp-busy', role: 'status', key: 'busy' }, '正在添加工作区…'),
     ])
@@ -363,14 +374,15 @@ export function DirectoryFlow(props: FlowProps): ReactElement | null {
   /** The console is locked: offer the unlock right here instead of a dead end. */
   const needsUnlock = failureCode === 'admin_required'
 
-  return createElement('div', { className: 'lgp-scrim', key: 'scrim', onClick: cancel }, [
+  return createElement('dialog', {
+    className: 'lgp-scrim', key: 'scrim', ref: dialog, 'aria-label': '选择工作区目录',
+    onClick: cancel, onCancel: cancelDialog,
+    onKeyDown: (event: { key: string; stopPropagation(): void }) => { if (event.key === 'Escape') event.stopPropagation() },
+  }, [
     createElement('style', { key: 'css' }, FLOW_CSS),
     createElement('div', {
       key: 'sheet',
       className: 'lgp-sheet',
-      role: 'dialog',
-      'aria-modal': 'true',
-      'aria-label': '选择工作区目录',
       onClick: stop,
     }, [
       createElement('div', { className: 'lgp-head', key: 'head' }, [

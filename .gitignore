@@ -7,6 +7,7 @@ coverage/
 
 # 本地临时 DSH home 与验收产物（P1 起，绝不提交）
 .tmp/
+.playwright-mcp/
 
 # 本地代码索引缓存（DSH code-index 生成，绝不提交）
 .dsh-code-index/

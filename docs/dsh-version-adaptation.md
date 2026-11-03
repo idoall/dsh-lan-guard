@@ -144,8 +144,9 @@ git push origin main && git push origin v<版本>
 | 位置 | 作用 |
 | --- | --- |
 | `dsh.compatibility.dshReleases` | 给人看的"已验证清单"，也是市场上架信息 |
-| `dsh.engines.dsh` | 说明性范围，**不参与门禁** |
-| `peerDependencies["@deepseek-ai/dsh-*"]` | **真正的门禁**：profile 加载时按 **DSH 运行时版本**比对（不是与该 peer 包自身版本比），范围不含运行版本就**静默**丢弃插件 |
+| 顶层 `engines.dsh` | 当前 DSH 优先使用的门禁范围；存在时不再使用 DSH peer 范围 |
+| 嵌套 `dsh.engines.dsh` | 旧说明性范围，不能替代顶层 `engines.dsh` |
+| `peerDependencies["@deepseek-ai/dsh-*"]` | 没有顶层 `engines.dsh` 时的后备门禁；按 **DSH 运行时版本**比对，并包含预发布版本。当前插件使用此路径，范围覆盖 alpha.3 |
 
 `<0.3.0` 这个上界是 0.4.3 从 `<0.2.0` 放宽来的：裸的 `<0.2.0` 恰好排除 `0.2.0` 正式版，
 正式版发布当天插件会被静默丢掉。**每次适配新版本时顺手确认上界仍然包住它。**

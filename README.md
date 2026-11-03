@@ -6,7 +6,7 @@
   <a href="https://github.com/idoall/dsh-lan-guard/actions/workflows/ci.yml"><img src="https://github.com/idoall/dsh-lan-guard/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://www.npmjs.com/package/dsh-lan-guard"><img src="https://img.shields.io/npm/v/dsh-lan-guard?label=npm&color=CB3837" alt="npm version"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-0F172A" alt="MIT"></a>
-  <img src="https://img.shields.io/badge/DSH-0.2.2--alpha.2-4B6BFB" alt="DSH 0.2.2-alpha.2">
+  <img src="https://img.shields.io/badge/DSH-0.2.2--alpha.3-4B6BFB" alt="DSH 0.2.2-alpha.3">
 </p>
 
 <p align="center">English | <a href="README.zh.md">中文</a></p>
@@ -36,7 +36,7 @@ DSH serves its Web UI on `127.0.0.1` only, and it deliberately refuses to bind `
 - **Two passwords** — PBKDF2-SHA256 (600,000 iterations). The **access password** logs visitor devices in; the **admin password** unlocks this settings page's management console (it falls back to the access password). Plus a `dsh_` passwordless link, persistent visitor sessions, per-IP lockout and CSRF checks.
 - **Self-signed HTTPS by default, with a stable CA** — generates a `DSH LAN Guard CA` and signs a leaf certificate for the current NIC addresses. Changing IP only re-signs the leaf, so each device trusts the CA once.
 - **Your own machine is never locked** — direct `127.0.0.1` access is physically unlocked (whoever can use this computer could change these settings anyway). Remote access follows `adminPolicy`: read-only (default), password-unlocked, or open.
-- **Device pairing and permanent blocking** — a phone names itself once when it first passes the gate, receives an HttpOnly device-identity cookie, and appears under **已授权设备** (name / created / last used / source IP) where you can **revoke and block** it. Blocking does not rely on device fingerprinting: re-pairing with the access password from another browser is refused too, and unblocking is the only way back.
+- **Device pairing and credential blocking** — a phone names itself once when it first passes the gate, receives an HttpOnly device-identity cookie, and appears under **已授权设备** (name / created / last used / source IP) where you can **revoke or block** that identity. The block persists for the recorded identity, not the physical machine: a fresh browser or cleared cookie can pair again with the shared access password. Enable approval for new devices when you need to review re-pairing.
 - **Settings inside the official page** — the "局域网访问" section has four tabs: QR access, authentication, authorised devices, and connection & certificates. All typography and colours use the official design tokens; **no official layout is replaced**.
 - **Adding a workspace from a phone (smart routing)** — DSH resolves its directory picker once at boot, and a loopback bind with a display resolves to `native`: tapping "添加工作区" on a phone actually opens the folder dialog **on the host's screen**. This plugin shadows the official pick flow from the browser half at a lower slot priority, so **the local browser keeps the OS dialog while a remote device gets an in-page directory browser** (breadcrumbs, shortcuts, directory list). The chosen path still goes through DSH's own workspace flow — this plugin only reads directories, never writes anything.
 - **Configurable port and listen scope** — defaults to `3081` (DSH's port + 1) and walks up to ten ports when that one is taken, with an availability check in the settings page. The listen scope toggles between "LAN (default)" and "this machine only"; both need a DSH restart.
@@ -49,7 +49,8 @@ Requirements:
 
 - DeepSeek Harness with a Web profile
 - Node.js 20 or newer
-- Verified DeepSeek Harness: `0.2.2-alpha.2` (API review, type checking and automated regression, plus config load, LAN entry, client injection and management endpoints checked on a running `0.2.2-alpha.2` instance; that instance runs `0.7.6`, whose only difference from this release is how the phone turn rail is located — and that fix was verified in real Chrome against a standalone page for a Chinese, a Japanese and an unknown label; on-device acceptance is still pending).
+- Verified DeepSeek Harness: `0.2.2-alpha.3` (API review, type checking and automated regression; read-only HTTP checks on the running alpha.3 instance with plugin `0.7.8` confirm the proxy entry, index injection and management endpoints. The remote directory picker is fixed for alpha.3's mobile sidebar. Real Chromium checks on the running UI, with only this plugin's client response replaced by the local build, confirm a 390px modal over the 280px sidebar (old build: 280px), plus Escape cancellation. This is not a deployed-package or full LAN/WebSocket acceptance test; phone testing remains pending).
+- Registry channels checked on 2026-11-03: `alpha` = `0.2.2-alpha.3`, `latest` / `next` = `0.2.1-rc.5`. This release verifies alpha.3; rc.5 is not included in the verified list.
 
 Install from npm:
 
@@ -148,11 +149,12 @@ The plugin reads its config from its Cordis entry. **Every key has a usable defa
 
 ## Compatibility
 
-Current version: plugin **`0.7.8`**, compatible with DeepSeek Harness **`0.2.2-alpha.2`**. Each row below is one plugin release: the DSH versions it was verified against, and what that release did.
+Current version: plugin **`0.7.9`**, compatible with DeepSeek Harness **`0.2.2-alpha.3`**. Each row below is one plugin release: the DSH versions it was verified against, and what that release did.
 
 | Plugin | Verified DeepSeek Harness | What this version is |
 | --- | --- | --- |
-| **`0.7.8`** (latest) | **`0.2.2-alpha.2`**, `0.2.1-rc.4`, `0.2.1-rc.3`, `0.2.1-rc.2`, `0.2.1-alpha.5`, `0.2.1-alpha.4`, `0.2.1-alpha.3`, `0.2.1-alpha.1`, `0.2.0-rc.2`, `0.2.0-rc.1`, `0.1.7-rc.2`, `0.1.7-rc.1` | Keeps up with DSH `0.2.2-alpha.2`: the new UI localises the turn navigator's label into eight languages, so the phone rail now finds it without depending on copy (with a structural fallback for languages added later); the rest is compatibility statements and docs. |
+| **`0.7.9`** (latest) | **`0.2.2-alpha.3`**; earlier verified releases listed below | Fixes the remote directory picker being clipped by alpha.3's mobile sidebar drawer; updates compatibility metadata and development dependencies. Corrects stale security and mobile-rail descriptions in both READMEs. |
+| **`0.7.8`** (published) | **`0.2.2-alpha.2`**, `0.2.1-rc.4`, `0.2.1-rc.3`, `0.2.1-rc.2`, `0.2.1-alpha.5`, `0.2.1-alpha.4`, `0.2.1-alpha.3`, `0.2.1-alpha.1`, `0.2.0-rc.2`, `0.2.0-rc.1`, `0.1.7-rc.2`, `0.1.7-rc.1` | Keeps up with DSH `0.2.2-alpha.2`: the new UI localises the turn navigator's label into eight languages, so the phone rail now finds it without depending on copy (with a structural fallback for languages added later); the rest is compatibility statements and docs. |
 | **`0.7.7`** (published) | **`0.2.1-rc.4`**, `0.2.1-rc.3`, `0.2.1-rc.2`, `0.2.1-alpha.5`, `0.2.1-alpha.4`, `0.2.1-alpha.3`, `0.2.1-alpha.1`, `0.2.0-rc.2`, `0.2.0-rc.1`, `0.1.7-rc.2`, `0.1.7-rc.1` | Keeps up with DSH `0.2.1-rc.4`: this upstream release only bumps version strings, and the host interfaces and types are byte-identical to rc.3; no plugin runtime code changed. |
 | **`0.7.6`** (published) | **`0.2.1-rc.3`**, `0.2.1-rc.2`, `0.2.1-alpha.5`, `0.2.1-alpha.4`, `0.2.1-alpha.3`, `0.2.1-alpha.1`, `0.2.0-rc.2`, `0.2.0-rc.1`, `0.1.7-rc.2`, `0.1.7-rc.1` | Compatibility release for DSH `0.2.1-rc.3`; no runtime code change. API/type/automated checks only; phone/browser acceptance pending. |
 | **`0.7.5`** (published) | **`0.2.1-rc.2`**, `0.2.1-alpha.5`, `0.2.1-alpha.4`, `0.2.1-alpha.3`, `0.2.1-alpha.1`, `0.2.0-rc.2`, `0.2.0-rc.1`, `0.1.7-rc.2` | Keeps up with DSH `0.2.1-rc.2`: compatibility statement only, no code change. |
@@ -181,7 +183,7 @@ Current version: plugin **`0.7.8`**, compatible with DeepSeek Harness **`0.2.2-a
 | `0.1.1` | `0.1.7-rc.1` | Documentation release: bilingual user READMEs |
 | `0.1.0` | `0.1.7-rc.1` | First release: gated reverse proxy, self-signed HTTPS, device pairing, settings page, QR access |
 
-- Declared range `>=0.1.7-rc.1 <0.3.0` (`dsh.engines.dsh`); verified releases: `0.1.7-rc.1`, `0.1.7-rc.2`, `0.2.0-rc.1`, `0.2.0-rc.2`, `0.2.1-alpha.1`, `0.2.1-alpha.3`, `0.2.1-alpha.4`, `0.2.1-alpha.5`, `0.2.1-rc.2`, `0.2.1-rc.3`, `0.2.1-rc.4`, `0.2.2-alpha.2` (12 releases; the `0.2.2-alpha.2` verification scope is described above). DSH versions not listed are **unverified** — verify them yourself before use. The upper bound was widened from `<0.2.0` in `0.4.3` because profile load refuses a bundle whose range excludes the running release, and a plain `<0.2.0` would exclude the `0.2.0` stable.
+- Declared range `>=0.1.7-rc.1 <0.3.0` (`dsh.engines.dsh`); verified releases: `0.1.7-rc.1`, `0.1.7-rc.2`, `0.2.0-rc.1`, `0.2.0-rc.2`, `0.2.1-alpha.1`, `0.2.1-alpha.3`, `0.2.1-alpha.4`, `0.2.1-alpha.5`, `0.2.1-rc.2`, `0.2.1-rc.3`, `0.2.1-rc.4`, `0.2.2-alpha.2`, `0.2.2-alpha.3` (13 releases; the `0.2.2-alpha.3` verification scope is described above). DSH versions not listed are **unverified** — verify them yourself before use. The upper bound was widened from `<0.2.0` in `0.4.3` because profile load refuses a bundle whose range excludes the running release, and a plain `<0.2.0` would exclude the `0.2.0` stable.
 - **New in 0.2.2, evaluated**: the per-Peer `webserver/index-inject` emit, `resource` routes and `readResource` are all new; this plugin does not use them — the first only affects fallback rendering, and the other two expose no client socket, while the gate and the "local only" policy depend on the remote address. What it *did* adopt is the multi-language UI: the phone rail now recognises all eight DSH languages, with a structural fallback for any language added later.
 - Host/client interfaces this plugin uses: `webServer.register` / `webServer.tapIndex` (indexTaps), `connection.requestRejection`, `connection.authenticatedUrl`, the additive `settings.section` seat, `@deepseek-ai/schemastery`, and `profileContext` (for deriving the default data directory).
 - **Breaking default change (from `0.3.2`)**: `listenHost` now defaults to `0.0.0.0` instead of `127.0.0.1`, so one restart after install is enough; `0.3.1` and earlier default to loopback only. The gate and self-signed TLS defaults are unchanged (with no password the gate still refuses every device). See the [CHANGELOG](CHANGELOG.md).
@@ -228,7 +230,7 @@ The official UI is reused with zero modifications and adapts on a phone viewport
 
 **Fix (`mobileScrollFix`, on by default)**: the injected script only acts when narrow screen AND mobile UA AND the page cannot scroll AND it actually finds a layer clipping overflowing content; it then makes exactly those layers touch-scrollable (`overflow-y:auto`, `-webkit-overflow-scrolling:touch`, `touch-action:pan-y`). Healthy pages are never touched.
 
-**"Back to bottom" button (from 0.4.2)**: on narrow screens the official button shows only when not at the tail, judged against the scroll layer the official code believes in — which is not the layer that actually scrolls, so it never appears. The gateway therefore ships an equivalent floating button (shown whenever the view is not at the bottom, smooth-scrolls on click, yields to the official button once that appears, and positions itself above the composer).
+**"Back to bottom" button**: 0.4.2 briefly shipped a plugin-owned button, but 0.4.3 removed it. Current releases reuse DSH's official button and repair the mobile height/scroll chain only when the checks detect clipping; they do not add a second back-to-bottom button.
 
 **Self-check**: append `?lgdiag=1` to the page URL for an on-screen report (`narrow / mobile / innerHeight / visualViewport / pageScrolls / clippingLayers / patched`). That report is exactly the data that located this bug.
 
@@ -237,8 +239,8 @@ The official UI is reused with zero modifications and adapts on a phone viewport
 **It is already there — it is just hidden.** The rail that floats at the right of a session on the desktop (grey ticks = loaded turns, dim ticks = not loaded yet, black bar = the current turn; hovering previews; tapping an unloaded turn pages the history in first) is **rendered and wired up on a phone too**. `ChatView` mounts it unconditionally; the only thing hiding it is DSH's own container query:
 `@container (max-width: 900px) { .frame { display: none } }` (the container is the chat frame, only about 327px wide on a 390px phone).
 
-**What this switch does**: a stylesheet scoped to `≤1023px` un-hides that rail and moves it out of the message column into the chat frame's right gutter (`right:2px`, 24px wide).
-**Why not reimplement it**: the turn data (`ui-chat`'s `navigation.items()`) is package-internal, so a plugin cannot rebuild the rail — but it does not need to. Un-hiding **reuses** the official component: its jump-to-turn, its page-history-in, its active-turn follow and its previews. This plugin adds no scroll container, no button and no listener of its own.
+**What this switch does**: a stylesheet scoped to `≤1023px` un-hides that rail and moves it out of the message column into the chat frame's right gutter (`right:4px`, 28px wide).
+**Why not reimplement it**: the turn data (`ui-chat`'s `navigation.items()`) is package-internal, so a plugin cannot rebuild the rail — but it does not need to. Un-hiding **reuses** the official component: its jump-to-turn, its page-history-in, its active-turn follow and its previews. The plugin adds no transcript scroll container; it does add the touch-preview card, its controls and gesture listeners described below.
 
 **Measured (0.2.1-alpha.1 / 440×956, iPhone 16 Pro Max, injected script run verbatim against the real page)**: `display:none` → `block`, rect `[401,411,28,52]`, 5 marks, 10px pitch, exactly one `aria-current`; the message column ends at x=401 and the rail starts at x=401, so it **never covers the text**; the `Global panels` and `Session hierarchy` navs are untouched; holding a mark for 0.4s opens the card with that turn's prompt and reply, ◀/▶ step to the neighbouring turns, the jump button moved `scrollTop 4295 → 8111` and dismissed the card, a 60px drag opened nothing, and there were zero page errors.
 
@@ -343,8 +345,8 @@ The client half registers into the official additive `settings.section` seat; th
 Releases are tag-driven. Update `package.json`, move the matching CHANGELOG section out of `Unreleased`, write `release-notes/v<version>.md` with both language anchors, then push the release commit and tag:
 
 ```sh
-git tag v0.7.8
-git push origin v0.7.8
+git tag v0.7.9
+git push origin v0.7.9
 ```
 
 The release workflow checks that the tag matches the `package.json` version and that the notes carry both anchors, then runs `pnpm run verify`, packs the plugin, publishes through npm trusted publishing (OIDC), and creates a GitHub Release with the tarball attached.

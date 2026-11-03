@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.7.9] — 2026-11-03（适配 DSH 0.2.2-alpha.3）
+
+- 修复 alpha.3 窄屏 transformed sidebar 把远程目录弹层裁成侧栏宽度的问题：使用原生 `dialog.showModal()` 进入浏览器顶层，DOM 仍归原 slot/React 所有，卸载关闭、Escape 交给 owner，busy 时不取消。
+- 真实 alpha.3 页面中通过浏览器请求替换仅加载本插件本地构建：390px 视口，旧版遮罩 280px → 新版 390px；1024px 视口遮罩 1024px / 卡片 560px；侧栏与首页入口、Escape/取消通过。其余插件资源保持宿主原样。未改 profile、未安装；测试域名/本地转发不代表完整 LAN/WebSocket 或手机实机验收，未执行工作区登记或管理解锁。
+- 宿主 webserver/connection/scope 的非 map 构建与类型逐字节等同 alpha.2；Cordis 内部生命周期重构未改变本插件调用的公开接口。类型环境更新到 DSH alpha.3、Cordis 4.0.6-alpha.2、Schemastery 3.18.6-alpha.2。
+- 新增两项弹层结构回归；类型检查、23 个测试文件 / 390 项用例、构建、版本一致性与打包检查通过。
+- README 中英文全部版本位置同步为 0.7.9 / 0.2.2-alpha.3，兼容清单共 13 个历史验证版本；说明 DSH alpha 与 latest/next 渠道不同（后者为 0.2.1-rc.5，本次未验证）。
+- 纠正双语 README 的跨浏览器永久封禁误述、早已移除的自建回到底部按钮、浮轨尺寸及手势说明；不改变认证逻辑。更新适配 SOP 对顶层 engines.dsh 优先、DSH peers 后备的门禁说明。
+- 发布限于当前工作区；现有 profile 仍运行 0.7.8，不修改其他插件或自动重启 DSH。
+
 ## [0.7.8] — 2026-10-28（适配 DSH 0.2.2-alpha.2）
 
 兼容声明 + 一处跟随上游多语言界面的修复。

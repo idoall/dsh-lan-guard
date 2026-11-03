@@ -28,6 +28,24 @@ function rule(selector: string): string {
 }
 
 describe('picker sheet layout', () => {
+  it('uses the native top layer for normal and busy states, not the transformed sidebar', () => {
+    expect(source.match(/createElement\('dialog'/g)).toHaveLength(2)
+    expect(source.match(/key: 'scrim', ref: dialog/g)).toHaveLength(2)
+    expect(source).toContain('node.showModal()')
+    expect(source).toContain('node.close()')
+    expect(source).not.toContain("createElement('div', { className: 'lgp-scrim'")
+    for (const declaration of ['margin:0', 'max-width:none', 'max-height:none', 'width:100%', 'height:100%']) {
+      expect(rule('.lgp-scrim')).toContain(declaration)
+    }
+  })
+
+  it('keeps Escape owner-controlled and does not cancel a busy adoption', () => {
+    expect(source).toContain('event.preventDefault()')
+    expect(source).toContain('if (latest.current.busy !== true) latest.current.onCancel()')
+    expect(source.match(/onCancel: cancelDialog/g)).toHaveLength(2)
+    expect(source).not.toContain("document.addEventListener('keydown'")
+  })
+
   it('extracts the stylesheet it is guarding', () => {
     expect(css.length).toBeGreaterThan(1000)
   })
