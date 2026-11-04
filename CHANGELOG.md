@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.7.10] — 2026-11-04（适配 DSH 0.2.2-rc.1）
+
+- 兼容声明新增 `0.2.2-rc.1`，支持范围仍为 `>=0.1.7-rc.1 <0.3.0`；DSH 开发依赖与 scope 同步 rc.1，Cordis 4.1.0、Schemastery 3.19.0，现有 peer 范围已覆盖，无需放宽或豁免。
+- 对照 alpha.3，webserver、connection、scope、Cordis、Schemastery 的非 map 构建与类型文件逐字节一致，核心宿主接口契约不变。
+- 运行时源码不变；新版依赖下构建的 `lib/index.js`、`index.d.ts`、`client.js`、`client.js.map` 与已发布 0.7.9 包逐字节一致。
+- rc.1 类型检查、23 个测试文件 / 390 项用例通过；当前 rc.1 实例的代理首页、页面补丁注入、管理配置与设备接口只读检查正常。
+- 两版 README 徽章、当前版本、兼容表、14 个历史验证版本清单、发布 tag 示例同步 0.7.10 / 0.2.2-rc.1；双语 Release 与 npm 包内容一并检查。
+- npm 渠道核对（2026-11-04）：next=0.2.2-rc.1、alpha=0.2.2-alpha.3、latest=0.2.1-rc.5；不声明 0.2.1-rc.5 已验证。
+- 本次未重做浏览器交互、完整 LAN/WebSocket、手机触摸/锁屏/语音验收，不沿用 alpha.3 的浏览器测量作为 rc.1 实测；不修改 profile、其他插件或自动安装重启。
+
 ## [0.7.9] — 2026-11-03（适配 DSH 0.2.2-alpha.3）
 
 - 修复 alpha.3 窄屏 transformed sidebar 把远程目录弹层裁成侧栏宽度的问题：使用原生 `dialog.showModal()` 进入浏览器顶层，DOM 仍归原 slot/React 所有，卸载关闭、Escape 交给 owner，busy 时不取消。
