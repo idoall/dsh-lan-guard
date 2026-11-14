@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.7.11] — 2026-11-14（适配 DSH 0.2.2-rc.3）
+
+- 兼容声明新增 `0.2.2-rc.2`、`0.2.2-rc.3`，支持范围仍为 `>=0.1.7-rc.1 <0.3.0`（上界已覆盖，无需放宽或版本豁免）；开发依赖 `dsh-host-webserver` / `dsh-client-connection` / `dsh-scope` 同步到 `0.2.2-rc.3`，Cordis 4.1.0 与 Schemastery 3.19.0 不变。
+- 逐包比对 rc.1 → rc.3 的 npm 产物：`dsh-host-webserver`、`dsh-scope` 的 lib 构建与类型逐字节一致；`dsh-client-connection` 只有浏览器包被改成压缩输出（导出的 `RpcId` / `apply` / `inject` / `installConnection` / `transportError` 相同），rc.2 与 rc.3 的三包产物亦逐字节一致。0.2.2-rc.1 之后没有新的 DSH 升级指南条目。
+- 客户端接缝复核：`settings.section` seat 仍在 `dsh-client-ui-settings` 的 slot 契约中，本轮唯一变更是可选参数的 `openSettings(sectionId?)`（本插件未调用）；源码未引用 `BundleInfo.updatable`，无需按 `plugin-update-method` 指南迁移；没有覆盖页头的自定义浮层，`window-drag-regions` 指南不适用。
+- 运行时源码不变：换用 rc.3 依赖构建出的 `lib/index.js`、`lib/index.d.ts`、`lib/client.js`、`lib/client.js.map` 与 npm 上 `0.7.10` 包内文件逐字节一致。
+- rc.3 类型检查、23 个测试文件 / 390 项用例、构建与版本/打包门禁全部通过。运行 0.2.2-rc.3 的实例（profile `web`，装的是 `0.7.10`）只读核对：代理入口 `301 → https 200`、页面补丁（手机滚动 / 轮次浮轨）注入、客户端模块 `plugins/??dsh-lan-guard/client.js` 200 且 104160 字节、`/plugins/dsh-lan-guard/config` 返回真实配置。
+- 两版 README 的徽章、已验证行、当前版本句、兼容表（新增 latest 行、`0.7.10` 转 published）、16 个历史验证版本清单与发版 tag 示例同步为 `0.7.11` / `0.2.2-rc.3`。
+- npm 渠道核对（2026-11-14）：`next` = `0.2.2-rc.3`，`latest` = `0.2.2-rc.1`，`alpha` = `0.2.2-alpha.3`。
+- 未做：rc.3 浏览器交互、完整 LAN/WebSocket、手机实机（触摸/锁屏/语音）验收；不修改 profile、其他工作区插件，也不自动安装或重启 DSH。
+
 ## [0.7.10] — 2026-11-04（适配 DSH 0.2.2-rc.1）
 
 - 兼容声明新增 `0.2.2-rc.1`，支持范围仍为 `>=0.1.7-rc.1 <0.3.0`；DSH 开发依赖与 scope 同步 rc.1，Cordis 4.1.0、Schemastery 3.19.0，现有 peer 范围已覆盖，无需放宽或豁免。
