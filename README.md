@@ -6,7 +6,7 @@
   <a href="https://github.com/idoall/dsh-lan-guard/actions/workflows/ci.yml"><img src="https://github.com/idoall/dsh-lan-guard/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://www.npmjs.com/package/dsh-lan-guard"><img src="https://img.shields.io/npm/v/dsh-lan-guard?label=npm&color=CB3837" alt="npm version"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-0F172A" alt="MIT"></a>
-  <img src="https://img.shields.io/badge/DSH-0.2.2--rc.4-4B6BFB" alt="DSH 0.2.2-rc.4">
+  <img src="https://img.shields.io/badge/DSH-0.2.2--rc.5-4B6BFB" alt="DSH 0.2.2-rc.5">
 </p>
 
 <p align="center">English | <a href="README.zh.md">中文</a></p>
@@ -49,8 +49,8 @@ Requirements:
 
 - DeepSeek Harness with a Web profile
 - Node.js 20 or newer
-- Verified DeepSeek Harness: `0.2.2-rc.4` (API review, current dependency type checks and automated regression; read-only checks on the running rc.4 instance confirm the proxy entry, page-patch injection, client module and management endpoints. Host packages (webserver / connection / scope) are byte-identical from rc.2 through rc.4, and the client bundles this plugin injects into differ only in their version string, so rc.2 / rc.3 / rc.4 share one verification. Browser interaction, full LAN/WebSocket and phone acceptance have not been repeated for rc.4).
-- Registry channels checked on 2026-11-18: `next` = `0.2.2-rc.4`, `latest` = `0.2.2-rc.1`, `alpha` = `0.2.2-alpha.3`. This release verifies `0.2.2-rc.4`; `0.2.2-rc.1` on the `latest` channel belongs to an earlier release's verification scope.
+- Verified DeepSeek Harness: `0.2.2-rc.5` (API review, current dependency type checks and automated regression; read-only checks on the running rc.5 instance confirm the proxy entry, page-patch injection, client module and management endpoints. Host packages (webserver / connection / scope) are byte-identical from rc.2 through rc.5, and the client bundles this plugin injects into differ only in their version string, so rc.2 through rc.5 share one verification. Browser interaction, full LAN/WebSocket and phone acceptance have not been repeated for rc.5).
+- Registry channels checked on 2026-11-21: `latest` = `next` = `0.2.2-rc.5`, `alpha` = `0.2.2-alpha.3`. This release verifies `0.2.2-rc.5`, which is also what the `latest` channel serves.
 
 Install from npm:
 
@@ -149,11 +149,12 @@ The plugin reads its config from its Cordis entry. **Every key has a usable defa
 
 ## Compatibility
 
-Current version: plugin **`0.7.12`**, compatible with DeepSeek Harness **`0.2.2-rc.4`**. Each row below is one plugin release: the DSH versions it was verified against, and what that release did.
+Current version: plugin **`0.7.13`**, compatible with DeepSeek Harness **`0.2.2-rc.5`**. Each row below is one plugin release: the DSH versions it was verified against, and what that release did.
 
 | Plugin | Verified DeepSeek Harness | What this version is |
 | --- | --- | --- |
-| **`0.7.12`** (latest) | **`0.2.2-rc.4`**, **`0.2.2-rc.3`**, **`0.2.2-rc.2`**; earlier verified releases listed below | Compatibility release for rc.4: the three host packages are byte-identical to rc.3 and the only new upgrade guide (DeepSeek content-refusal error codes) does not touch this plugin, so no runtime source changed; the compatibility statement is widened and development dependencies move to rc.4. |
+| **`0.7.13`** (latest) | **`0.2.2-rc.5`**, **`0.2.2-rc.4`**, **`0.2.2-rc.3`**, **`0.2.2-rc.2`**; earlier verified releases listed below | Compatibility release for rc.5: the three host packages are byte-identical to rc.4 and the only new upgrade guide (DeepSeek models default to legacy Messages search) does not touch this plugin, so no runtime source changed; the compatibility statement is widened and development dependencies move to rc.5. |
+| **`0.7.12`** (published) | **`0.2.2-rc.4`**, **`0.2.2-rc.3`**, **`0.2.2-rc.2`**; earlier verified releases listed below | Compatibility release for rc.4: the three host packages are byte-identical to rc.3 and the only new upgrade guide (DeepSeek content-refusal error codes) does not touch this plugin, so no runtime source changed; the compatibility statement is widened and development dependencies move to rc.4. |
 | **`0.7.11`** (published) | **`0.2.2-rc.3`**, **`0.2.2-rc.2`**; earlier verified releases listed below | Compatibility release for rc.3: host packages (webserver / connection / scope) kept byte-identical non-map builds and types from rc.1 to rc.3, so no runtime source changed; the compatibility statement is widened and development dependencies move to rc.3. |
 | **`0.7.10`** (published) | **`0.2.2-rc.1`**; earlier verified releases listed below | Compatibility release for rc.1 with Cordis 4.1.0 / Schemastery 3.19.0 development dependencies; no runtime source changes. |
 | **`0.7.9`** (published) | **`0.2.2-alpha.3`**; earlier verified releases listed below | Fixes the remote directory picker being clipped by alpha.3's mobile sidebar drawer; updates compatibility metadata and development dependencies. Corrects stale security and mobile-rail descriptions in both READMEs. |
@@ -186,7 +187,7 @@ Current version: plugin **`0.7.12`**, compatible with DeepSeek Harness **`0.2.2-
 | `0.1.1` | `0.1.7-rc.1` | Documentation release: bilingual user READMEs |
 | `0.1.0` | `0.1.7-rc.1` | First release: gated reverse proxy, self-signed HTTPS, device pairing, settings page, QR access |
 
-- Declared range `>=0.1.7-rc.1 <0.3.0` (`dsh.engines.dsh`); verified releases: `0.1.7-rc.1`, `0.1.7-rc.2`, `0.2.0-rc.1`, `0.2.0-rc.2`, `0.2.1-alpha.1`, `0.2.1-alpha.3`, `0.2.1-alpha.4`, `0.2.1-alpha.5`, `0.2.1-rc.2`, `0.2.1-rc.3`, `0.2.1-rc.4`, `0.2.2-alpha.2`, `0.2.2-alpha.3`, `0.2.2-rc.1`, `0.2.2-rc.2`, `0.2.2-rc.3`, `0.2.2-rc.4` (17 releases; the `0.2.2-rc.4` verification scope is described above). DSH versions not listed are **unverified** — verify them yourself before use. The upper bound was widened from `<0.2.0` in `0.4.3` because profile load refuses a bundle whose range excludes the running release, and a plain `<0.2.0` would exclude the `0.2.0` stable.
+- Declared range `>=0.1.7-rc.1 <0.3.0` (`dsh.engines.dsh`); verified releases: `0.1.7-rc.1`, `0.1.7-rc.2`, `0.2.0-rc.1`, `0.2.0-rc.2`, `0.2.1-alpha.1`, `0.2.1-alpha.3`, `0.2.1-alpha.4`, `0.2.1-alpha.5`, `0.2.1-rc.2`, `0.2.1-rc.3`, `0.2.1-rc.4`, `0.2.2-alpha.2`, `0.2.2-alpha.3`, `0.2.2-rc.1`, `0.2.2-rc.2`, `0.2.2-rc.3`, `0.2.2-rc.4`, `0.2.2-rc.5` (18 releases; the `0.2.2-rc.5` verification scope is described above). DSH versions not listed are **unverified** — verify them yourself before use. The upper bound was widened from `<0.2.0` in `0.4.3` because profile load refuses a bundle whose range excludes the running release, and a plain `<0.2.0` would exclude the `0.2.0` stable.
 - **New in 0.2.2, evaluated**: the per-Peer `webserver/index-inject` emit, `resource` routes and `readResource` are all new; this plugin does not use them — the first only affects fallback rendering, and the other two expose no client socket, while the gate and the "local only" policy depend on the remote address. What it *did* adopt is the multi-language UI: the phone rail now recognises all eight DSH languages, with a structural fallback for any language added later.
 - Host/client interfaces this plugin uses: `webServer.register` / `webServer.tapIndex` (indexTaps), `connection.requestRejection`, `connection.authenticatedUrl`, the additive `settings.section` seat, `@deepseek-ai/schemastery`, and `profileContext` (for deriving the default data directory).
 - **Breaking default change (from `0.3.2`)**: `listenHost` now defaults to `0.0.0.0` instead of `127.0.0.1`, so one restart after install is enough; `0.3.1` and earlier default to loopback only. The gate and self-signed TLS defaults are unchanged (with no password the gate still refuses every device). See the [CHANGELOG](CHANGELOG.md).
@@ -348,8 +349,8 @@ The client half registers into the official additive `settings.section` seat; th
 Releases are tag-driven. Update `package.json`, move the matching CHANGELOG section out of `Unreleased`, write `release-notes/v<version>.md` with both language anchors, then push the release commit and tag:
 
 ```sh
-git tag v0.7.12
-git push origin v0.7.12
+git tag v0.7.13
+git push origin v0.7.13
 ```
 
 The release workflow checks that the tag matches the `package.json` version and that the notes carry both anchors, then runs `pnpm run verify`, packs the plugin, publishes through npm trusted publishing (OIDC), and creates a GitHub Release with the tarball attached.

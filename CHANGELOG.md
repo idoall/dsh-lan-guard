@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.7.13] — 2026-11-21（适配 DSH 0.2.2-rc.5）
+
+- 兼容声明新增 `0.2.2-rc.5`，支持范围仍为 `>=0.1.7-rc.1 <0.3.0`（上界已覆盖，无需放宽或版本豁免）；开发依赖 `dsh-host-webserver` / `dsh-client-connection` / `dsh-scope` 同步到 `0.2.2-rc.5`，Cordis 4.1.0、Schemastery 3.19.0 不变。
+- 逐包比对 rc.4 → rc.5：`dsh-host-webserver`、`dsh-client-connection`、`dsh-scope` 的 lib 构建与类型逐字节一致；本插件注入的 `dsh-client-ui-settings`、`dsh-client-ui-renderer`、`dsh-client-ui-layout` 亦逐字节一致，`dsh-client-ui-settings-general` 的唯一差异是内嵌的版本文案（`rc.4` → `rc.5`）。`settings.section` slot 契约无变化。
+- 上游升级指南：rc.5 只新增一条（`v0.2.2-rc.4/web-search-deepseek-model-default`：交付组合不再固定 `web.searchProvider`，DeepSeek 模型上的网页搜索改走旧版 Messages 搜索）。本插件只做反向代理与门禁，不读写 `web.searchProvider` / `web-search-deepseek`，该条不适用，无需迁移。
+- 运行时源码不变：换用 rc.5 依赖构建出的 `lib/index.js`、`lib/index.d.ts`、`lib/client.js`、`lib/client.js.map` 与 npm 上 `0.7.12` 包内文件逐字节一致。
+- rc.5 类型检查、23 个测试文件 / 390 项用例、构建与版本/打包门禁全部通过。运行 0.2.2-rc.5 的实例（profile `web`，装的是 `0.7.12`）只读核对：代理入口 `http 301 → https 200`、手机滚动与轮次浮轨补丁注入、客户端模块 200 且与本地构建同源（仅 sourcemap 尾注被宿主改写）、`/plugins/dsh-lan-guard/config` 返回真实配置与监听状态。
+- 两版 README 的徽章、已验证行、当前版本句、兼容表（新增 latest 行、`0.7.12` 转 published）、18 个历史验证版本清单与发版 tag 示例同步为 `0.7.13` / `0.2.2-rc.5`。
+- npm 渠道核对（2026-11-21）：`latest` 与 `next` 均为 `0.2.2-rc.5`，`alpha` 为 `0.2.2-alpha.3`；本次验证的正是 `latest` 渠道版本。
+- 未做：rc.5 浏览器交互、完整 LAN/WebSocket、手机实机（触摸/锁屏/语音）验收；不修改 profile、其他工作区插件，也不自动安装或重启 DSH。
+
 ## [0.7.12] — 2026-11-18（适配 DSH 0.2.2-rc.4）
 
 - 兼容声明新增 `0.2.2-rc.4`，支持范围仍为 `>=0.1.7-rc.1 <0.3.0`（上界已覆盖，无需放宽或版本豁免）；开发依赖 `dsh-host-webserver` / `dsh-client-connection` / `dsh-scope` 同步到 `0.2.2-rc.4`，Cordis 4.1.0、Schemastery 3.19.0 不变。
